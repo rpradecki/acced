@@ -47,50 +47,66 @@ SCENES = ["Home", "Work", "Road", "Sports facility", "School", "Other"]
 EXERTION = ["", "Sedentary", "Light", "Medium", "Heavy", "Very heavy"]
 
 # --------------------------------------------------------------------------
-# Tailwind-inspired design system (scoped, injected once).
+# Health New Zealand | Te Whatu Ora design system (scoped, injected once).
+# Palette + Fira Sans per the HNZ digital identity brand guidelines:
+#   navy #252A47 · deep blue #002E6E (primary) · mid blue #7EB6DC (focus)
+#   light blue #EEF4FA · teal #A7DEE1 / #D3EFF0.
+# Variable names retain the slate/blue/... scale so component styles are stable;
+# their VALUES are the HNZ brand colours.
 # --------------------------------------------------------------------------
 CSS = """
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=Fira+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
   :root{
-    --slate-50:#f8fafc; --slate-100:#f1f5f9; --slate-200:#e2e8f0; --slate-300:#cbd5e1;
-    --slate-400:#94a3b8; --slate-500:#64748b; --slate-600:#475569; --slate-700:#334155;
-    --slate-800:#1e293b; --slate-900:#0f172a;
-    --blue-50:#eff6ff; --blue-100:#dbeafe; --blue-600:#2563eb; --blue-700:#1d4ed8; --blue-800:#1e40af;
-    --green-50:#ecfdf5; --green-600:#059669; --green-700:#047857;
-    --amber-50:#fffbeb; --amber-600:#d97706; --amber-700:#b45309;
-    --red-50:#fef2f2; --red-200:#fecaca; --red-600:#dc2626; --red-700:#b91c1c;
-    --green-200:#a7f3d0; --amber-200:#fde68a; --blue-200:#bfdbfe;
+    /* HNZ brand */
+    --navy:#252A47; --blue:#002E6E; --blue-mid:#7EB6DC; --teal:#A7DEE1; --teal-50:#D3EFF0;
+    /* neutral scale, tinted toward HNZ navy */
+    --slate-50:#F4F8FC; --slate-100:#EDF2F8; --slate-200:#D8E3EF; --slate-300:#C3D2E2;
+    --slate-400:#8398B0; --slate-500:#566579; --slate-600:#3E4C60; --slate-700:#2B3850;
+    --slate-800:#252A47; --slate-900:#1A1F36;
+    /* brand blue mapped onto the blue-* names used across components */
+    --blue-50:#EEF4FA; --blue-100:#DCEAF6; --blue-200:#BBD3EC;
+    --blue-600:#002E6E; --blue-700:#002454; --blue-800:#002E6E;
+    /* semantic */
+    --green-50:#E7F4EC; --green-200:#B7E0C7; --green-600:#1F8A54; --green-700:#17663E;
+    --amber-50:#FFF6E5; --amber-200:#F6DCA1; --amber-600:#B4791A; --amber-700:#8A5A00;
+    --red-50:#FBEBEA; --red-200:#F3C3BF; --red-600:#C0362C; --red-700:#8F2A22;
   }
-  html, body, [class*="css"], .stMarkdown, p, span, div, label, input, textarea, select{
+  html, body, [class*="css"], .stMarkdown, p, span, div, label, input, textarea, select, button{
+    font-family:'Fira Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     font-size:13px;
   }
+  .stApp{background:#fff;}
   .block-container{padding-top:1rem !important; padding-bottom:2.5rem !important; max-width:1180px;}
   [data-testid="stVerticalBlock"]{gap:.5rem;}
   [data-testid="stHorizontalBlock"]{gap:.55rem;}
   [data-testid="stElementContainer"]{margin-bottom:0 !important;}
   hr{margin:.5rem 0 !important; border-color:var(--slate-200);}
-  h1,h2,h3,h4{letter-spacing:-.01em; color:var(--slate-900);}
+  h1,h2,h3,h4{letter-spacing:-.01em; color:var(--navy); font-weight:700;}
 
   /* cards = bordered containers */
   [data-testid="stVerticalBlockBorderWrapper"]{
     background:#fff; border:1px solid var(--slate-200) !important; border-radius:12px;
-    box-shadow:0 1px 2px rgba(15,23,42,.05); padding:2px 4px;
+    box-shadow:0 1px 2px rgba(37,42,71,.06); padding:2px 4px;
   }
 
   /* buttons */
   .stButton>button{
-    border-radius:8px; border:1px solid var(--slate-300); background:#fff; color:var(--slate-700);
+    border-radius:8px; border:1px solid var(--slate-300); background:#fff; color:var(--blue);
     padding:.34rem .8rem; font-weight:600; font-size:12.5px; transition:all .12s;
   }
-  .stButton>button:hover{border-color:var(--slate-400); background:var(--slate-50);}
-  .stButton>button[kind="primary"]{background:var(--blue-600); border-color:var(--blue-700); color:#fff;}
-  .stButton>button[kind="primary"]:hover{background:var(--blue-700);}
+  .stButton>button:hover{border-color:var(--blue-mid); background:var(--blue-50);}
+  .stButton>button[kind="primary"]{background:var(--blue); border-color:var(--blue); color:#fff;}
+  .stButton>button[kind="primary"]:hover{background:var(--blue-700); border-color:var(--blue-700);}
+  .stButton>button:focus-visible{outline:3px solid var(--blue-mid); outline-offset:1px;}
   .stButton>button:disabled{background:var(--slate-100); color:var(--slate-400); border-color:var(--slate-200);}
 
-  /* inputs — compact */
+  /* inputs — compact, HNZ focus ring */
   .stTextInput input, .stDateInput input, .stNumberInput input{padding:.32rem .55rem !important; font-size:12.5px;}
   .stTextArea textarea{padding:.4rem .55rem !important; font-size:12.5px;}
   div[data-baseweb="select"]>div{min-height:34px; font-size:12.5px;}
+  .stTextInput input:focus, .stDateInput input:focus, .stTextArea textarea:focus{
+    border-color:var(--blue-mid) !important; box-shadow:0 0 0 3px rgba(126,182,220,.35) !important;}
   label p{font-size:11.5px !important; color:var(--slate-600) !important; font-weight:600 !important; margin-bottom:2px !important;}
   [data-testid="stWidgetLabel"]{margin-bottom:1px;}
 
@@ -98,44 +114,49 @@ CSS = """
   [role="radiogroup"]{gap:.4rem;}
   [role="radiogroup"] label{background:#fff; border:1px solid var(--slate-200); border-radius:7px; padding:2px 9px;}
 
-  /* tabs — segmented control, unmistakably tab-like */
-  [data-baseweb="tab-list"]{
-    gap:4px; background:var(--slate-100); border:1px solid var(--slate-200);
-    border-radius:10px; padding:4px; margin-bottom:.7rem;
+  /* ===================== TABS — robust, high-contrast HNZ pills ===================== */
+  .stTabs [data-baseweb="tab-list"], .stTabs div[role="tablist"]{
+    display:flex !important; flex-wrap:wrap; gap:6px !important;
+    background:var(--blue-50) !important; border:1px solid var(--slate-200) !important;
+    border-radius:12px !important; padding:5px !important; margin-bottom:.8rem !important;
   }
-  [data-baseweb="tab"]{
-    padding:8px 18px !important; font-weight:700; font-size:12.5px; color:var(--slate-500);
-    background:transparent; border-radius:8px; transition:all .12s;
+  .stTabs [data-baseweb="tab"], .stTabs button[role="tab"]{
+    flex:0 0 auto !important; height:auto !important;
+    padding:9px 20px !important; border-radius:9px !important; border:0 !important;
+    background:transparent !important; color:var(--slate-600) !important;
+    font-weight:700 !important; font-size:13px !important; transition:all .12s;
   }
-  [data-baseweb="tab"]:hover{color:var(--slate-700); background:rgba(255,255,255,.55);}
-  [data-baseweb="tab"][aria-selected="true"]{
-    color:var(--blue-700); background:#fff; box-shadow:0 1px 2px rgba(15,23,42,.12);
-  }
-  [data-baseweb="tab-highlight"], [data-baseweb="tab-border"]{display:none;}
+  .stTabs [data-baseweb="tab"] p, .stTabs button[role="tab"] p{
+    font-size:13px !important; font-weight:700 !important; color:inherit !important; margin:0 !important;}
+  .stTabs button[role="tab"]:hover{color:var(--blue) !important; background:rgba(255,255,255,.65) !important;}
+  .stTabs [data-baseweb="tab"][aria-selected="true"], .stTabs button[role="tab"][aria-selected="true"]{
+    color:#fff !important; background:var(--blue) !important; box-shadow:0 1px 3px rgba(0,46,110,.35) !important;}
+  .stTabs [aria-selected="true"] p{color:#fff !important;}
+  .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"]{display:none !important;}
 
-  /* sidebar dark */
-  [data-testid="stSidebar"]{background:var(--slate-900);}
-  [data-testid="stSidebar"] *{color:var(--slate-100) !important;}
-  [data-testid="stSidebar"] [role="radiogroup"] label{background:var(--slate-800); border-color:var(--slate-700);}
+  /* sidebar — HNZ navy */
+  [data-testid="stSidebar"]{background:var(--navy);}
+  [data-testid="stSidebar"] *{color:#EAF0F7 !important;}
+  [data-testid="stSidebar"] [role="radiogroup"] label{background:rgba(255,255,255,.06); border-color:rgba(255,255,255,.14);}
 
   /* --- utility components --- */
-  .apphdr{display:flex; align-items:center; gap:12px; padding:10px 16px; margin-bottom:10px;
-    background:linear-gradient(90deg,var(--slate-900),var(--slate-800)); border-radius:12px; color:#fff;}
-  .apphdr .brand{font-weight:800; letter-spacing:.2px; font-size:15px;}
-  .apphdr .ref{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; background:rgba(255,255,255,.12);
+  .apphdr{display:flex; align-items:center; gap:12px; padding:12px 16px; margin-bottom:10px;
+    background:linear-gradient(90deg,var(--navy),var(--blue)); border-radius:12px; color:#fff;}
+  .apphdr .brand{font-weight:700; letter-spacing:.2px; font-size:15px;}
+  .apphdr .ref{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; background:rgba(255,255,255,.14);
     padding:2px 9px; border-radius:7px; font-size:12.5px;}
-  .apphdr .sub{color:var(--slate-300); font-size:12px;}
+  .apphdr .sub{color:#C7D3E5; font-size:12px;}
   .apphdr .grow{flex:1;}
 
-  .sec{font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--slate-500);
-    font-weight:800; margin:2px 0 6px;}
+  .sec{font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--blue);
+    font-weight:700; margin:2px 0 6px;}
   .chips{display:flex; flex-wrap:wrap; gap:6px; margin:2px 0 6px;}
   .kv{background:var(--slate-50); border:1px solid var(--slate-200); border-radius:8px; padding:3px 9px;
     font-size:11.5px; color:var(--slate-500);}
-  .kv b{color:var(--slate-800); font-weight:700;}
+  .kv b{color:var(--navy); font-weight:700;}
   .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; color:var(--slate-400);}
 
-  .pill{display:inline-block; padding:1px 8px; border-radius:999px; font-size:10.5px; font-weight:800;
+  .pill{display:inline-block; padding:1px 8px; border-radius:999px; font-size:10.5px; font-weight:700;
     background:var(--slate-100); color:var(--slate-500); letter-spacing:.02em;}
   .pill.ok{background:var(--green-50); color:var(--green-700);}
   .pill.err{background:var(--red-50); color:var(--red-700);}
@@ -151,7 +172,7 @@ CSS = """
 
   table.tbl{width:100%; border-collapse:separate; border-spacing:0; font-size:12.5px; margin:2px 0 4px;}
   table.tbl th{background:var(--slate-50); color:var(--slate-500); text-align:left; padding:6px 10px;
-    border-bottom:1px solid var(--slate-200); font-size:10px; text-transform:uppercase; letter-spacing:.05em; font-weight:800;}
+    border-bottom:1px solid var(--slate-200); font-size:10px; text-transform:uppercase; letter-spacing:.05em; font-weight:700;}
   table.tbl td{padding:6px 10px; border-bottom:1px solid var(--slate-100); color:var(--slate-700); vertical-align:middle;}
   table.tbl tr:last-child td{border-bottom:0;}
 </style>
@@ -432,8 +453,9 @@ def change_request_dialog(c):
 # panels
 # --------------------------------------------------------------------------
 def dashboard():
-    html('<div class="apphdr"><span class="brand">🩺 ACC Claim Console</span>'
-         '<span class="sub">research mockup · stubbed ACC &amp; terminology</span><span class="grow"></span>'
+    html('<div class="apphdr">'
+         '<span class="brand">Health New Zealand <span style="font-weight:400;opacity:.75">| Te Whatu Ora</span></span>'
+         '<span class="sub">ACC Claim Console · research mockup</span><span class="grow"></span>'
          f'<span class="sub">{len(st.session_state.claims)} claim(s)</span></div>')
     with st.container(border=True):
         html('<div class="bnr info" style="margin:4px 6px">➕ <b>New claim launches in encounter context.</b> '
@@ -698,7 +720,7 @@ def workspace(c):
     if hc[0].button("← Home", use_container_width=True):
         st.session_state.active = None
         st.rerun()
-    html('<div class="apphdr"><span class="brand">🩺</span>'
+    html('<div class="apphdr"><span class="brand" style="font-size:13px">Health NZ</span>'
          f'<span class="ref">{c["reference"]}</span>{status_pill(c["status"])}'
          f'<span class="sub">{c["patient"]["given"]} {c["patient"]["family"]} · '
          f'encounter {c["encounter"]["external_id"]} · accident {c["accident"]["adate"] or "—"}</span>'
@@ -718,8 +740,8 @@ def workspace(c):
 # sidebar (role) + router
 # --------------------------------------------------------------------------
 with st.sidebar:
-    st.markdown("### 🩺 ACC Claim Console")
-    st.caption("research mockup — stubbed ACC & terminology")
+    st.markdown("### ACC Claim Console")
+    st.caption("Health New Zealand | Te Whatu Ora · research mockup")
     st.divider()
     roles = {"prescriber": "Dr A. Rangi — GP (prescriber)",
              "limited": "J. Neho — Physiotherapist (limited)",
