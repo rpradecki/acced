@@ -58,7 +58,8 @@ CSS = """
     --blue-50:#eff6ff; --blue-100:#dbeafe; --blue-600:#2563eb; --blue-700:#1d4ed8; --blue-800:#1e40af;
     --green-50:#ecfdf5; --green-600:#059669; --green-700:#047857;
     --amber-50:#fffbeb; --amber-600:#d97706; --amber-700:#b45309;
-    --red-50:#fef2f2; --red-600:#dc2626; --red-700:#b91c1c;
+    --red-50:#fef2f2; --red-200:#fecaca; --red-600:#dc2626; --red-700:#b91c1c;
+    --green-200:#a7f3d0; --amber-200:#fde68a; --blue-200:#bfdbfe;
   }
   html, body, [class*="css"], .stMarkdown, p, span, div, label, input, textarea, select{
     font-size:13px;
@@ -97,16 +98,25 @@ CSS = """
   [role="radiogroup"]{gap:.4rem;}
   [role="radiogroup"] label{background:#fff; border:1px solid var(--slate-200); border-radius:7px; padding:2px 9px;}
 
-  /* tabs */
-  [data-baseweb="tab-list"]{gap:3px; border-bottom:1px solid var(--slate-200); margin-bottom:.4rem;}
-  [data-baseweb="tab"]{padding:7px 15px !important; font-weight:600; color:var(--slate-500);}
-  [data-baseweb="tab"][aria-selected="true"]{color:var(--blue-700);}
-  [data-baseweb="tab-highlight"]{background:var(--blue-600);}
+  /* tabs — segmented control, unmistakably tab-like */
+  [data-baseweb="tab-list"]{
+    gap:4px; background:var(--slate-100); border:1px solid var(--slate-200);
+    border-radius:10px; padding:4px; margin-bottom:.7rem;
+  }
+  [data-baseweb="tab"]{
+    padding:8px 18px !important; font-weight:700; font-size:12.5px; color:var(--slate-500);
+    background:transparent; border-radius:8px; transition:all .12s;
+  }
+  [data-baseweb="tab"]:hover{color:var(--slate-700); background:rgba(255,255,255,.55);}
+  [data-baseweb="tab"][aria-selected="true"]{
+    color:var(--blue-700); background:#fff; box-shadow:0 1px 2px rgba(15,23,42,.12);
+  }
+  [data-baseweb="tab-highlight"], [data-baseweb="tab-border"]{display:none;}
 
   /* sidebar dark */
   [data-testid="stSidebar"]{background:var(--slate-900);}
   [data-testid="stSidebar"] *{color:var(--slate-100) !important;}
-  [data-testid="stSidebar"] [role="radiogroup"] label{background:#1e293b; border-color:#334155;}
+  [data-testid="stSidebar"] [role="radiogroup"] label{background:var(--slate-800); border-color:var(--slate-700);}
 
   /* --- utility components --- */
   .apphdr{display:flex; align-items:center; gap:12px; padding:10px 16px; margin-bottom:10px;
@@ -133,10 +143,10 @@ CSS = """
   .pill.blue{background:var(--blue-50); color:var(--blue-800);}
 
   .bnr{padding:8px 11px; border-radius:9px; font-size:12.5px; margin:5px 0; border:1px solid transparent; line-height:1.45;}
-  .bnr.ok{background:var(--green-50); color:var(--green-700); border-color:#a7f3d0;}
-  .bnr.err{background:var(--red-50); color:var(--red-700); border-color:#fecaca;}
-  .bnr.warn{background:var(--amber-50); color:var(--amber-700); border-color:#fde68a;}
-  .bnr.info{background:var(--blue-50); color:var(--blue-800); border-color:#bfdbfe;}
+  .bnr.ok{background:var(--green-50); color:var(--green-700); border-color:var(--green-200);}
+  .bnr.err{background:var(--red-50); color:var(--red-700); border-color:var(--red-200);}
+  .bnr.warn{background:var(--amber-50); color:var(--amber-700); border-color:var(--amber-200);}
+  .bnr.info{background:var(--blue-50); color:var(--blue-800); border-color:var(--blue-200);}
   .bnr ul{margin:4px 0 0 16px; padding:0;}
 
   table.tbl{width:100%; border-collapse:separate; border-spacing:0; font-size:12.5px; margin:2px 0 4px;}
@@ -363,7 +373,7 @@ def dashboard():
             col.markdown(f'<div class="sec" style="margin:0">{t}</div>', unsafe_allow_html=True)
         for c in st.session_state.claims:
             cols = st.columns([1.1, 1.7, 1.5, 1.4, 1.2, 0.8])
-            cols[0].markdown(f'<span class="mono" style="font-size:12.5px;color:#334155">{c["reference"]}</span>', unsafe_allow_html=True)
+            cols[0].markdown(f'<span class="mono" style="font-size:12.5px;color:var(--slate-700)">{c["reference"]}</span>', unsafe_allow_html=True)
             cols[1].write(f'{c["patient"]["given"]} {c["patient"]["family"]}')
             cols[2].markdown(f'<span class="mono">{c["encounter"]["external_id"]}</span>', unsafe_allow_html=True)
             cols[3].write(str(c["accident"]["adate"] or "—"))
@@ -385,7 +395,7 @@ def admin_panel(c):
              f'<span class="kv">ACC45 no. <b>{c["reference"]}</b> · '
              f'{"ACC allocation API" if c["number_source"]=="acc_allocation_api" else "pre-allocated block"}</span>'
              '</div>'
-             '<div class="mono" style="color:#94a3b8">Identity inherited from the PMS — verify, don\'t re-key.</div>')
+             '<div class="mono" style="color:var(--slate-400)">Identity inherited from the PMS — verify, don\'t re-key.</div>')
 
     col_l, col_r = st.columns(2)
     with col_l:
@@ -449,7 +459,7 @@ def clinician_panel(c):
              f'<span class="kv">Accident <b>{c["accident"]["adate"] or "— not set"}</b></span>'
              f'<span class="kv">Scene <b>{c["accident"]["scene"]}</b></span>'
              f'<span class="kv">Consent {consent_pill}</span></div>'
-             + (f'<div class="mono" style="color:#94a3b8">Cause: {c["accident"]["cause"]}</div>' if c["accident"]["cause"] else ""))
+             + (f'<div class="mono" style="color:var(--slate-400)">Cause: {c["accident"]["cause"]}</div>' if c["accident"]["cause"] else ""))
 
     with st.container(border=True):
         top = st.columns([3, 1.4])
