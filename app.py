@@ -77,7 +77,9 @@ CSS = """
     font-size:13px;
   }
   .stApp{background:#fff;}
-  .block-container{padding-top:1rem !important; padding-bottom:2.5rem !important; max-width:1180px;}
+  /* keep content clear of Streamlit's fixed top header */
+  [data-testid="stHeader"]{background:rgba(255,255,255,.85); backdrop-filter:blur(4px);}
+  .block-container{padding-top:4rem !important; padding-bottom:2.5rem !important; max-width:1180px;}
   [data-testid="stVerticalBlock"]{gap:.5rem;}
   [data-testid="stHorizontalBlock"]{gap:.55rem;}
   [data-testid="stElementContainer"]{margin-bottom:0 !important;}
@@ -114,25 +116,9 @@ CSS = """
   [role="radiogroup"]{gap:.4rem;}
   [role="radiogroup"] label{background:#fff; border:1px solid var(--slate-200); border-radius:7px; padding:2px 9px;}
 
-  /* ===================== TABS — robust, high-contrast HNZ pills ===================== */
-  .stTabs [data-baseweb="tab-list"], .stTabs div[role="tablist"]{
-    display:flex !important; flex-wrap:wrap; gap:6px !important;
-    background:var(--blue-50) !important; border:1px solid var(--slate-200) !important;
-    border-radius:12px !important; padding:5px !important; margin-bottom:.8rem !important;
-  }
-  .stTabs [data-baseweb="tab"], .stTabs button[role="tab"]{
-    flex:0 0 auto !important; height:auto !important;
-    padding:9px 20px !important; border-radius:9px !important; border:0 !important;
-    background:transparent !important; color:var(--slate-600) !important;
-    font-weight:700 !important; font-size:13px !important; transition:all .12s;
-  }
-  .stTabs [data-baseweb="tab"] p, .stTabs button[role="tab"] p{
-    font-size:13px !important; font-weight:700 !important; color:inherit !important; margin:0 !important;}
-  .stTabs button[role="tab"]:hover{color:var(--blue) !important; background:rgba(255,255,255,.65) !important;}
-  .stTabs [data-baseweb="tab"][aria-selected="true"], .stTabs button[role="tab"][aria-selected="true"]{
-    color:#fff !important; background:var(--blue) !important; box-shadow:0 1px 3px rgba(0,46,110,.35) !important;}
-  .stTabs [aria-selected="true"] p{color:#fff !important;}
-  .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"]{display:none !important;}
+  /* Tabs are built from st.buttons in workspace() (a custom nav bar) rather than
+     st.tabs — avoids fragile baseweb internals and stays readable on every version.
+     Active tab = primary (blue/white); inactive = secondary (white/blue). Both readable. */
 
   /* sidebar — HNZ navy */
   [data-testid="stSidebar"]{background:var(--navy);}
@@ -383,6 +369,7 @@ if "claims" not in st.session_state:
     st.session_state.claims = seed_claims()
     st.session_state.active = None
     st.session_state.role = "prescriber"
+    st.session_state.tab = "admin"        # active workspace tab
 
 st.markdown(CSS, unsafe_allow_html=True)
 
@@ -727,12 +714,23 @@ def workspace(c):
          '<span class="grow"></span>'
          f'<span class="sub">{"✓ ready" if can else str(len(errs))+" to fix"}</span></div>')
 
-    t_admin, t_clin, t_review = st.tabs(["📋 Administrative", "🩺 Clinician", "✅ Review & lodge"])
-    with t_admin:
+    # Custom tab bar (buttons) — reliable & readable across Streamlit versions.
+    tabs = [("admin", "📋  Administrative"), ("clin", "🩺  Clinician"),
+            ("review", "✅  Review & lodge")]
+    with st.container(border=True):
+        ncols = st.columns(len(tabs))
+        for i, (key, label) in enumerate(tabs):
+            is_active = st.session_state.get("tab", "admin") == key
+            if ncols[i].button(label, key="nav_" + key, use_container_width=True,
+                               type="primary" if is_active else "secondary"):
+                st.session_state.tab = key
+                st.rerun()
+    active = st.session_state.get("tab", "admin")
+    if active == "admin":
         admin_panel(c)
-    with t_clin:
+    elif active == "clin":
         clinician_panel(c)
-    with t_review:
+    else:
         review_panel(c)
 
 
