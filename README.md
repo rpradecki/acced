@@ -39,7 +39,7 @@ Then open http://localhost:8501.
 1. Push this folder to a GitHub repo (see below).
 2. Go to <https://share.streamlit.io> and sign in with GitHub.
 3. **Create app** → **Deploy a public app from GitHub**.
-4. Pick your repo/branch, set **Main file path** to `app.py`, click **Deploy**.
+4. Pick your repo, set **Branch** to `main`, set **Main file path** to `app.py`, click **Deploy**.
 
 Streamlit installs `requirements.txt` automatically and gives you a public
 `https://<app>.streamlit.app` URL. Pushes to the branch redeploy automatically.

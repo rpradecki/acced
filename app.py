@@ -7,6 +7,10 @@ terminology are stubbed. See README.md.
 
 Run locally:   streamlit run app.py
 Deploy:        push to GitHub, then Streamlit Community Cloud → New app.
+
+UI: a Tailwind-inspired CSS layer is injected via st.markdown (Streamlit strips
+<script>/<link> and full Tailwind's reset fights Streamlit's base styles, so we
+use a scoped design system with the Tailwind palette/spacing instead).
 """
 
 import random
@@ -19,7 +23,6 @@ st.set_page_config(page_title="ACC Claim Console", page_icon="🩺", layout="wid
 
 # --------------------------------------------------------------------------
 # Stubbed SNOMED CT terminology (acc-claim-reference-set membership).
-# acc_eligible mirrors membership in the ACC claim reference value set.
 # --------------------------------------------------------------------------
 TERM = [
     {"code": "283384001", "display": "Sprain of ligament of ankle", "site": "Ankle", "acc": True},
@@ -43,20 +46,104 @@ EMP_STATUSES = ["Not employed in NZ", "Retired", "Employee", "Self-employed", "O
 SCENES = ["Home", "Work", "Road", "Sports facility", "School", "Other"]
 EXERTION = ["", "Sedentary", "Light", "Medium", "Heavy", "Very heavy"]
 
+# --------------------------------------------------------------------------
+# Tailwind-inspired design system (scoped, injected once).
+# --------------------------------------------------------------------------
 CSS = """
 <style>
-  .chip{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;background:#eceff3;color:#5b6b7b}
-  .chip.ok{background:#e4f5ea;color:#1a7f45}
-  .chip.err{background:#fbe6e5;color:#b3261e}
-  .chip.warn{background:#fdf2d8;color:#8a5a00}
-  .chip.blue{background:#e2eefb;color:#0f4f8a}
-  .bnr{padding:10px 12px;border-radius:6px;font-size:13px;margin:6px 0}
-  .bnr.ok{background:#e4f5ea;color:#1a7f45}
-  .bnr.err{background:#fbe6e5;color:#b3261e}
-  .bnr.warn{background:#fdf2d8;color:#8a5a00}
-  .bnr.info{background:#eaf6fb;color:#0f4f8a}
-  .lock{font-size:12px;color:#8a5a00;background:#fdf2d8;padding:3px 8px;border-radius:5px}
-  .hd{color:#0f4f8a;font-weight:700}
+  :root{
+    --slate-50:#f8fafc; --slate-100:#f1f5f9; --slate-200:#e2e8f0; --slate-300:#cbd5e1;
+    --slate-400:#94a3b8; --slate-500:#64748b; --slate-600:#475569; --slate-700:#334155;
+    --slate-800:#1e293b; --slate-900:#0f172a;
+    --blue-50:#eff6ff; --blue-100:#dbeafe; --blue-600:#2563eb; --blue-700:#1d4ed8; --blue-800:#1e40af;
+    --green-50:#ecfdf5; --green-600:#059669; --green-700:#047857;
+    --amber-50:#fffbeb; --amber-600:#d97706; --amber-700:#b45309;
+    --red-50:#fef2f2; --red-600:#dc2626; --red-700:#b91c1c;
+  }
+  html, body, [class*="css"], .stMarkdown, p, span, div, label, input, textarea, select{
+    font-size:13px;
+  }
+  .block-container{padding-top:1rem !important; padding-bottom:2.5rem !important; max-width:1180px;}
+  [data-testid="stVerticalBlock"]{gap:.5rem;}
+  [data-testid="stHorizontalBlock"]{gap:.55rem;}
+  [data-testid="stElementContainer"]{margin-bottom:0 !important;}
+  hr{margin:.5rem 0 !important; border-color:var(--slate-200);}
+  h1,h2,h3,h4{letter-spacing:-.01em; color:var(--slate-900);}
+
+  /* cards = bordered containers */
+  [data-testid="stVerticalBlockBorderWrapper"]{
+    background:#fff; border:1px solid var(--slate-200) !important; border-radius:12px;
+    box-shadow:0 1px 2px rgba(15,23,42,.05); padding:2px 4px;
+  }
+
+  /* buttons */
+  .stButton>button{
+    border-radius:8px; border:1px solid var(--slate-300); background:#fff; color:var(--slate-700);
+    padding:.34rem .8rem; font-weight:600; font-size:12.5px; transition:all .12s;
+  }
+  .stButton>button:hover{border-color:var(--slate-400); background:var(--slate-50);}
+  .stButton>button[kind="primary"]{background:var(--blue-600); border-color:var(--blue-700); color:#fff;}
+  .stButton>button[kind="primary"]:hover{background:var(--blue-700);}
+  .stButton>button:disabled{background:var(--slate-100); color:var(--slate-400); border-color:var(--slate-200);}
+
+  /* inputs — compact */
+  .stTextInput input, .stDateInput input, .stNumberInput input{padding:.32rem .55rem !important; font-size:12.5px;}
+  .stTextArea textarea{padding:.4rem .55rem !important; font-size:12.5px;}
+  div[data-baseweb="select"]>div{min-height:34px; font-size:12.5px;}
+  label p{font-size:11.5px !important; color:var(--slate-600) !important; font-weight:600 !important; margin-bottom:2px !important;}
+  [data-testid="stWidgetLabel"]{margin-bottom:1px;}
+
+  /* radio horizontal → segmented look */
+  [role="radiogroup"]{gap:.4rem;}
+  [role="radiogroup"] label{background:#fff; border:1px solid var(--slate-200); border-radius:7px; padding:2px 9px;}
+
+  /* tabs */
+  [data-baseweb="tab-list"]{gap:3px; border-bottom:1px solid var(--slate-200); margin-bottom:.4rem;}
+  [data-baseweb="tab"]{padding:7px 15px !important; font-weight:600; color:var(--slate-500);}
+  [data-baseweb="tab"][aria-selected="true"]{color:var(--blue-700);}
+  [data-baseweb="tab-highlight"]{background:var(--blue-600);}
+
+  /* sidebar dark */
+  [data-testid="stSidebar"]{background:var(--slate-900);}
+  [data-testid="stSidebar"] *{color:var(--slate-100) !important;}
+  [data-testid="stSidebar"] [role="radiogroup"] label{background:#1e293b; border-color:#334155;}
+
+  /* --- utility components --- */
+  .apphdr{display:flex; align-items:center; gap:12px; padding:10px 16px; margin-bottom:10px;
+    background:linear-gradient(90deg,var(--slate-900),var(--slate-800)); border-radius:12px; color:#fff;}
+  .apphdr .brand{font-weight:800; letter-spacing:.2px; font-size:15px;}
+  .apphdr .ref{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; background:rgba(255,255,255,.12);
+    padding:2px 9px; border-radius:7px; font-size:12.5px;}
+  .apphdr .sub{color:var(--slate-300); font-size:12px;}
+  .apphdr .grow{flex:1;}
+
+  .sec{font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--slate-500);
+    font-weight:800; margin:2px 0 6px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px; margin:2px 0 6px;}
+  .kv{background:var(--slate-50); border:1px solid var(--slate-200); border-radius:8px; padding:3px 9px;
+    font-size:11.5px; color:var(--slate-500);}
+  .kv b{color:var(--slate-800); font-weight:700;}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; color:var(--slate-400);}
+
+  .pill{display:inline-block; padding:1px 8px; border-radius:999px; font-size:10.5px; font-weight:800;
+    background:var(--slate-100); color:var(--slate-500); letter-spacing:.02em;}
+  .pill.ok{background:var(--green-50); color:var(--green-700);}
+  .pill.err{background:var(--red-50); color:var(--red-700);}
+  .pill.warn{background:var(--amber-50); color:var(--amber-700);}
+  .pill.blue{background:var(--blue-50); color:var(--blue-800);}
+
+  .bnr{padding:8px 11px; border-radius:9px; font-size:12.5px; margin:5px 0; border:1px solid transparent; line-height:1.45;}
+  .bnr.ok{background:var(--green-50); color:var(--green-700); border-color:#a7f3d0;}
+  .bnr.err{background:var(--red-50); color:var(--red-700); border-color:#fecaca;}
+  .bnr.warn{background:var(--amber-50); color:var(--amber-700); border-color:#fde68a;}
+  .bnr.info{background:var(--blue-50); color:var(--blue-800); border-color:#bfdbfe;}
+  .bnr ul{margin:4px 0 0 16px; padding:0;}
+
+  table.tbl{width:100%; border-collapse:separate; border-spacing:0; font-size:12.5px; margin:2px 0 4px;}
+  table.tbl th{background:var(--slate-50); color:var(--slate-500); text-align:left; padding:6px 10px;
+    border-bottom:1px solid var(--slate-200); font-size:10px; text-transform:uppercase; letter-spacing:.05em; font-weight:800;}
+  table.tbl td{padding:6px 10px; border-bottom:1px solid var(--slate-100); color:var(--slate-700); vertical-align:middle;}
+  table.tbl tr:last-child td{border-bottom:0;}
 </style>
 """
 
@@ -75,7 +162,6 @@ def allocate_number():
 
 
 def new_claim():
-    """Simulate a claim launched from a PAS/PMS encounter and allocate an ACC45 number."""
     return {
         "id": uid(),
         "reference": allocate_number(),
@@ -84,22 +170,16 @@ def new_claim():
         "decision": None,
         "encounter": {
             "external_id": "ENC-" + str(random.randint(100000, 999999)),
-            "source": "pms_context",
-            "facility": "Riverside Medical Centre",
-            "provider": "Dr A. Rangi (GP)",
-            "klass": "Outpatient / GP consult",
+            "source": "pms_context", "facility": "Riverside Medical Centre",
+            "provider": "Dr A. Rangi (GP)", "klass": "Outpatient / GP consult",
             "source_system": "Medtech PMS",
         },
-        "patient": {
-            "pas_id": "PAS-88213", "given": "Margaret", "family": "Ellery",
-            "dob": "1949-03-11", "nhi": "JBX4728", "mobile": "021 555 0192",
-            "email": "", "address": "14 Rewi Street, Christchurch 8022",
-        },
+        "patient": {"pas_id": "PAS-88213", "given": "Margaret", "family": "Ellery",
+                    "dob": "1949-03-11", "nhi": "JBX4728", "mobile": "021 555 0192",
+                    "email": "", "address": "14 Rewi Street, Christchurch 8022"},
         "employment": {"status": "Not employed in NZ", "occupation": "Unemployed", "employer": ""},
-        "accident": {
-            "adate": None, "atime": "08:34", "location": "Christchurch City",
-            "scene": "Home", "workplace": "No", "vehicle": "No", "sporting": "No", "cause": "",
-        },
+        "accident": {"adate": None, "atime": "08:34", "location": "Christchurch City",
+                     "scene": "Home", "workplace": "No", "vehicle": "No", "sporting": "No", "cause": ""},
         "consent": {"given": False, "at": None},
         "diagnoses": [],
         "flags": {"gradual": "No", "treatment": "No", "admitted": "No", "home": "No"},
@@ -151,12 +231,34 @@ def active_claim():
     return next((c for c in st.session_state.claims if c["id"] == st.session_state.active), None)
 
 
-def status_chip(status):
-    m = {"draft": ("chip", "Draft"), "ready": ("chip blue", "Ready to lodge"),
-         "lodged": ("chip blue", "Lodged"), "accepted": ("chip ok", "Accepted"),
-         "held": ("chip warn", "Held"), "declined": ("chip err", "Declined")}
-    cls, lab = m.get(status, ("chip", status))
+STATUS = {"draft": ("pill", "Draft"), "ready": ("pill blue", "Ready to lodge"),
+          "lodged": ("pill blue", "Lodged"), "accepted": ("pill ok", "Accepted"),
+          "held": ("pill warn", "Held"), "declined": ("pill err", "Declined")}
+
+
+def status_pill(status):
+    cls, lab = STATUS.get(status, ("pill", status))
     return f'<span class="{cls}">{lab}</span>'
+
+
+def sec(title):
+    st.markdown(f'<div class="sec">{title}</div>', unsafe_allow_html=True)
+
+
+def html(s):
+    st.markdown(s, unsafe_allow_html=True)
+
+
+def dx_table(diags, with_status=True):
+    head = "<tr><th>Diagnosis</th><th>Side</th><th>ACC?</th>" + ("<th>Status</th>" if with_status else "") + "</tr>"
+    rows = ""
+    for d in diags:
+        acc = '<span class="pill ok">Yes</span>' if d["acc"] else '<span class="pill err">Not eligible</span>'
+        prim = ' <span class="pill blue">primary</span>' if d.get("primary") else ""
+        stt = f'<td><span class="pill">{d["status"]}</span></td>' if with_status else ""
+        rows += (f'<tr><td>{d["display"]} <span class="mono">{d["code"]}</span>{prim}</td>'
+                 f'<td>{d["side"]}</td><td>{acc}</td>{stt}</tr>')
+    return f'<table class="tbl"><thead>{head}</thead><tbody>{rows}</tbody></table>'
 
 
 # --------------------------------------------------------------------------
@@ -188,26 +290,24 @@ def add_diagnosis_dialog(c):
     idx = st.selectbox("Result", range(len(pool)), format_func=lambda i: labels[i])
     sel = pool[idx]
     if sel["acc"]:
-        st.markdown(f'<div class="bnr ok">✓ <b>{sel["display"]}</b> ({sel["code"]}) — member of the ACC '
-                    f'claim reference set. Supports an ACC claim.</div>', unsafe_allow_html=True)
+        html(f'<div class="bnr ok">✓ <b>{sel["display"]}</b> ({sel["code"]}) — member of the ACC claim reference '
+             f'set. Supports an ACC claim.</div>')
     else:
-        st.markdown(f'<div class="bnr err">⚠ <b>{sel["display"]}</b> ({sel["code"]}) — <b>not</b> in the ACC '
-                    f'claim reference set. Can be recorded, but cannot support an ACC claim on its own. '
-                    f'Consider a specific injury + body site.</div>', unsafe_allow_html=True)
+        html(f'<div class="bnr err">⚠ <b>{sel["display"]}</b> ({sel["code"]}) — <b>not</b> in the ACC claim '
+             f'reference set. Can be recorded, but cannot support an ACC claim on its own. Consider a specific '
+             f'injury + body site.</div>')
     side = st.radio("Body side", ["Left", "Right", "Bilateral", "N/A"], horizontal=True)
     if st.button("Add to claim", type="primary"):
-        c["diagnoses"].append({
-            "id": uid(), "code": sel["code"], "display": sel["display"], "site": sel["site"],
-            "side": side, "acc": sel["acc"], "primary": len(c["diagnoses"]) == 0, "status": "draft",
-        })
+        c["diagnoses"].append({"id": uid(), "code": sel["code"], "display": sel["display"], "site": sel["site"],
+                               "side": side, "acc": sel["acc"], "primary": len(c["diagnoses"]) == 0, "status": "draft"})
         st.rerun()
 
 
 @st.dialog("Add diagnosis to lodged ACC45")
 def change_request_dialog(c):
-    st.markdown('<div class="bnr info">ℹ This creates a <b>Change-in-Diagnosis request</b> against the '
-                'existing claim (not a re-lodgement). The new injury must be from the <b>same accident</b> '
-                'already on this ACC45. It receives its own cover decision.</div>', unsafe_allow_html=True)
+    html('<div class="bnr info">ℹ This creates a <b>Change-in-Diagnosis request</b> against the existing claim '
+         '(not a re-lodgement). The new injury must be from the <b>same accident</b> already on this ACC45. '
+         'It receives its own cover decision.</div>')
     q = st.text_input("Search SNOMED CT", placeholder="e.g. knee, sprain")
     pool = TERM if not q.strip() else [t for t in TERM if q.lower() in t["display"].lower() or q in t["code"]]
     if not pool:
@@ -222,8 +322,8 @@ def change_request_dialog(c):
     same_event = st.checkbox("This injury was caused by the accident already on this claim (same event)")
     bundle = st.checkbox("Attach to the ACC18 medical certificate issued this encounter", value=True)
     if not same_event:
-        st.markdown('<div class="bnr warn">⚠ If this injury is from a <b>different</b> accident, don\'t add it '
-                    'here — lodge a new ACC45 instead.</div>', unsafe_allow_html=True)
+        html('<div class="bnr warn">⚠ If this injury is from a <b>different</b> accident, don\'t add it here — '
+             'lodge a new ACC45 instead.</div>')
     if st.button("Submit change request", type="primary", disabled=not same_event):
         req = {"id": uid(), "kind": "add", "code": sel["code"], "display": sel["display"], "side": side,
                "acc": sel["acc"], "same_event": same_event,
@@ -239,277 +339,283 @@ def change_request_dialog(c):
 # panels
 # --------------------------------------------------------------------------
 def dashboard():
-    st.subheader("Claims")
-    st.markdown('<div class="bnr info">➕ <b>New claim launches in encounter context.</b> In production this '
-                'opens from the PAS/PMS against a live visit; here it simulates a Medtech PMS encounter for '
-                'Margaret Ellery and allocates a fresh ACC45 number.</div>', unsafe_allow_html=True)
-    if st.button("➕ New ACC45 claim (from PMS encounter)", type="primary"):
-        c = new_claim()
-        st.session_state.claims.append(c)
-        st.session_state.active = c["id"]
-        st.rerun()
+    html('<div class="apphdr"><span class="brand">🩺 ACC Claim Console</span>'
+         '<span class="sub">research mockup · stubbed ACC &amp; terminology</span><span class="grow"></span>'
+         f'<span class="sub">{len(st.session_state.claims)} claim(s)</span></div>')
+    with st.container(border=True):
+        html('<div class="bnr info" style="margin:4px 6px">➕ <b>New claim launches in encounter context.</b> '
+             'In production this opens from the PAS/PMS against a live visit; here it simulates a Medtech PMS '
+             'encounter for Margaret Ellery and allocates a fresh ACC45 number.</div>')
+        cc = st.columns([2, 5])
+        if cc[0].button("➕ New ACC45 claim (from PMS encounter)", type="primary", use_container_width=True):
+            c = new_claim()
+            st.session_state.claims.append(c)
+            st.session_state.active = c["id"]
+            st.rerun()
 
     if not st.session_state.claims:
         st.caption("No claims yet — create one above.")
         return
-    h = st.columns([1.2, 1.6, 1.4, 1.4, 1.1, 0.8])
-    for col, t in zip(h, ["ACC45 no.", "Patient", "Encounter", "Accident date", "Status", ""]):
-        col.markdown(f"**{t}**")
-    for c in st.session_state.claims:
-        cols = st.columns([1.2, 1.6, 1.4, 1.4, 1.1, 0.8])
-        cols[0].write(c["reference"])
-        cols[1].write(f'{c["patient"]["given"]} {c["patient"]["family"]}')
-        cols[2].caption(c["encounter"]["external_id"])
-        cols[3].write(str(c["accident"]["adate"] or "—"))
-        cols[4].markdown(status_chip(c["status"]), unsafe_allow_html=True)
-        if cols[5].button("Open", key="open_" + c["id"]):
-            st.session_state.active = c["id"]
-            st.rerun()
+    with st.container(border=True):
+        sec("Claims")
+        h = st.columns([1.1, 1.7, 1.5, 1.4, 1.2, 0.8])
+        for col, t in zip(h, ["ACC45 NO.", "PATIENT", "ENCOUNTER", "ACCIDENT DATE", "STATUS", ""]):
+            col.markdown(f'<div class="sec" style="margin:0">{t}</div>', unsafe_allow_html=True)
+        for c in st.session_state.claims:
+            cols = st.columns([1.1, 1.7, 1.5, 1.4, 1.2, 0.8])
+            cols[0].markdown(f'<span class="mono" style="font-size:12.5px;color:#334155">{c["reference"]}</span>', unsafe_allow_html=True)
+            cols[1].write(f'{c["patient"]["given"]} {c["patient"]["family"]}')
+            cols[2].markdown(f'<span class="mono">{c["encounter"]["external_id"]}</span>', unsafe_allow_html=True)
+            cols[3].write(str(c["accident"]["adate"] or "—"))
+            cols[4].markdown(status_pill(c["status"]), unsafe_allow_html=True)
+            if cols[5].button("Open", key="open_" + c["id"]):
+                st.session_state.active = c["id"]
+                st.rerun()
 
 
 def admin_panel(c):
-    st.markdown('<span class="hd">Encounter context (from PAS/PMS)</span>', unsafe_allow_html=True)
-    e = c["encounter"]
-    st.caption(f'Encounter {e["external_id"]} · Source {e["source_system"]} · Facility {e["facility"]} · '
-               f'Provider {e["provider"]} · {e["klass"]}')
-    st.caption(f'Patient identity inherited from the PMS — verify, don\'t re-key. ACC45 number allocated at '
-               f'claim creation ({"ACC Claim Number Allocation API" if c["number_source"]=="acc_allocation_api" else "pre-allocated block"}).')
-    st.divider()
+    e, p, em, a = c["encounter"], c["patient"], c["employment"], c["accident"]
+    with st.container(border=True):
+        sec("Encounter context · from PAS/PMS")
+        html('<div class="chips">'
+             f'<span class="kv">Encounter <b>{e["external_id"]}</b></span>'
+             f'<span class="kv">Source <b>{e["source_system"]}</b></span>'
+             f'<span class="kv">Facility <b>{e["facility"]}</b></span>'
+             f'<span class="kv">Provider <b>{e["provider"]}</b></span>'
+             f'<span class="kv">ACC45 no. <b>{c["reference"]}</b> · '
+             f'{"ACC allocation API" if c["number_source"]=="acc_allocation_api" else "pre-allocated block"}</span>'
+             '</div>'
+             '<div class="mono" style="color:#94a3b8">Identity inherited from the PMS — verify, don\'t re-key.</div>')
 
-    left, right = st.columns(2)
-    with left:
-        st.markdown('<span class="hd">Patient details — ACC45 Part A</span>', unsafe_allow_html=True)
-        p = c["patient"]
-        p["given"] = st.text_input("Given name *", value=p["given"])
-        p["family"] = st.text_input("Family name *", value=p["family"])
-        p["dob"] = st.text_input("Date of birth * (YYYY-MM-DD)", value=p["dob"])
-        p["nhi"] = st.text_input("NHI", value=p["nhi"]).upper()
-        p["mobile"] = st.text_input("Mobile", value=p["mobile"])
-        p["email"] = st.text_input("Email", value=p["email"])
-        p["address"] = st.text_input("Address", value=p["address"])
-    with right:
-        st.markdown('<span class="hd">Employment — ACC45 Part B</span>', unsafe_allow_html=True)
-        em = c["employment"]
-        em["status"] = st.selectbox("Employment status", EMP_STATUSES, index=EMP_STATUSES.index(em["status"]))
-        em["occupation"] = st.text_input("Occupation", value=em["occupation"],
-                                         disabled=em["status"] == "Not employed in NZ")
-        em["employer"] = st.text_input("Employer", value=em["employer"], disabled=em["status"] != "Employee",
-                                       placeholder="Required for employees" if em["status"] == "Employee" else "n/a")
+    col_l, col_r = st.columns(2)
+    with col_l:
+        with st.container(border=True):
+            sec("Patient · ACC45 Part A")
+            p["given"] = st.text_input("Given name *", value=p["given"])
+            p["family"] = st.text_input("Family name *", value=p["family"])
+            g1, g2 = st.columns(2)
+            p["dob"] = g1.text_input("DOB * (YYYY-MM-DD)", value=p["dob"])
+            p["nhi"] = g2.text_input("NHI", value=p["nhi"]).upper()
+            g3, g4 = st.columns(2)
+            p["mobile"] = g3.text_input("Mobile", value=p["mobile"])
+            p["email"] = g4.text_input("Email", value=p["email"])
+            p["address"] = st.text_input("Address", value=p["address"])
+    with col_r:
+        with st.container(border=True):
+            sec("Employment · ACC45 Part B")
+            em["status"] = st.selectbox("Employment status", EMP_STATUSES, index=EMP_STATUSES.index(em["status"]))
+            em["occupation"] = st.text_input("Occupation", value=em["occupation"],
+                                             disabled=em["status"] == "Not employed in NZ")
+            em["employer"] = st.text_input("Employer", value=em["employer"], disabled=em["status"] != "Employee",
+                                           placeholder="Required for employees" if em["status"] == "Employee" else "n/a")
+        with st.container(border=True):
+            sec("Patient consent · ACC45 Part E")
+            if c["consent"]["given"]:
+                html(f'<div class="bnr ok" style="margin:2px 0">✓ <b>Consent given</b> — {c["consent"]["at"]}. '
+                     f'All three authorisations captured.</div>')
+            else:
+                st.caption("3-question script: (1) collect/use/disclose, (2) true & correct, (3) authorise lodgement.")
+                if st.button("Record patient consent (all three = Yes)", type="primary"):
+                    c["consent"] = {"given": True, "at": datetime.now().strftime("%d/%m/%Y %H:%M")}
+                    st.rerun()
 
-    st.divider()
-    st.markdown('<span class="hd">Accident details — ACC45 Part B</span>', unsafe_allow_html=True)
-    a = c["accident"]
-    a1, a2 = st.columns(2)
-    with a1:
-        a["adate"] = st.date_input("Date of accident *", value=a["adate"] or date(2026, 7, 7))
-        a["atime"] = st.text_input("Time", value=a["atime"])
-        a["location"] = st.text_input("Location", value=a["location"])
-        a["scene"] = st.selectbox("Accident scene", SCENES, index=SCENES.index(a["scene"]))
-    with a2:
-        a["workplace"] = st.radio("Workplace accident?", ["No", "Yes"],
-                                  horizontal=True, index=["No", "Yes"].index(a["workplace"]))
-        a["vehicle"] = st.radio("Moving vehicle on road?", ["No", "Yes"],
-                                horizontal=True, index=["No", "Yes"].index(a["vehicle"]))
-        a["sporting"] = st.radio("Sporting injury?", ["No", "Yes"],
-                                 horizontal=True, index=["No", "Yes"].index(a["sporting"]))
-    a["cause"] = st.text_area("Cause of injury (mechanism) *", value=a["cause"],
-                              placeholder="e.g. walking to the kitchen – tripped over own feet – fell to ground")
-
-    st.divider()
-    st.markdown('<span class="hd">Patient consent — ACC45 Part E (patient portion)</span>', unsafe_allow_html=True)
-    if c["consent"]["given"]:
-        st.markdown(f'<div class="bnr ok">✓ <b>Consent given</b> — recorded {c["consent"]["at"]}. '
-                    f'All three authorisations captured.</div>', unsafe_allow_html=True)
-    else:
-        st.caption("Read the three-question consent script and record the response: "
-                   "(1) authorise collection/use/disclosure, (2) declare true & correct, (3) authorise lodgement.")
-        if st.button("Record patient consent (all three = Yes)", type="primary"):
-            c["consent"] = {"given": True, "at": datetime.now().strftime("%d/%m/%Y %H:%M")}
-            st.rerun()
+    with st.container(border=True):
+        sec("Accident · ACC45 Part B")
+        a1, a2, a3 = st.columns(3)
+        a["adate"] = a1.date_input("Date of accident *", value=a["adate"] or date(2026, 7, 7))
+        a["atime"] = a2.text_input("Time", value=a["atime"])
+        a["location"] = a3.text_input("Location", value=a["location"])
+        b1, b2, b3, b4 = st.columns(4)
+        a["scene"] = b1.selectbox("Scene", SCENES, index=SCENES.index(a["scene"]))
+        yn = ["No", "Yes"]
+        a["workplace"] = b2.radio("Workplace?", yn, horizontal=True, index=yn.index(a["workplace"]))
+        a["vehicle"] = b3.radio("Vehicle on road?", yn, horizontal=True, index=yn.index(a["vehicle"]))
+        a["sporting"] = b4.radio("Sporting?", yn, horizontal=True, index=yn.index(a["sporting"]))
+        a["cause"] = st.text_area("Cause of injury (mechanism) *", value=a["cause"], height=68,
+                                  placeholder="e.g. walking to the kitchen – tripped over own feet – fell to ground")
 
 
 def clinician_panel(c):
     role = st.session_state.role
     is_prescriber = role == "prescriber"
     locked = c["status"] not in ("draft", "ready")
-
-    st.markdown('<span class="hd">Context (from admin / encounter)</span>', unsafe_allow_html=True)
-    consent_chip = '<span class="chip ok">recorded</span>' if c["consent"]["given"] else '<span class="chip err">missing</span>'
-    st.markdown(f'Patient: <b>{c["patient"]["given"]} {c["patient"]["family"]}</b> ({c["patient"]["dob"]}) · '
-                f'Accident: <b>{c["accident"]["adate"] or "— not set"}</b> · Scene: <b>{c["accident"]["scene"]}</b> · '
-                f'Consent: {consent_chip}', unsafe_allow_html=True)
-    st.divider()
-
-    # diagnosis grid
-    st.markdown('<span class="hd">Injury diagnosis &amp; assistance — ACC45 Part C</span>', unsafe_allow_html=True)
     eligible = [d for d in c["diagnoses"] if d["acc"]]
-    st.markdown(f'<span class="chip blue">{len(c["diagnoses"])} diagnoses · {len(eligible)} ACC-eligible</span>',
-                unsafe_allow_html=True)
-    if not locked:
-        if st.button("➕ Add / change diagnosis"):
-            add_diagnosis_dialog(c)
-    else:
-        st.markdown('<span class="lock">Lodged — grid read-only. Use the Review tab to add a post-lodgement '
-                    'diagnosis change.</span>', unsafe_allow_html=True)
 
-    if c["diagnoses"]:
-        hdr = st.columns([3, 1, 1.2, 1.2, 0.9])
-        for col, t in zip(hdr, ["Diagnosis", "Side", "ACC?", "Status", ""]):
-            col.markdown(f"**{t}**")
-        for d in c["diagnoses"]:
-            row = st.columns([3, 1, 1.2, 1.2, 0.9])
-            row[0].markdown(f'{d["display"]} <span class="chip">{d["code"]}</span>'
-                            + (' <span class="chip blue">primary</span>' if d.get("primary") else ""),
-                            unsafe_allow_html=True)
-            row[1].write(d["side"])
-            row[2].markdown('<span class="chip ok">Yes</span>' if d["acc"] else '<span class="chip err">Not eligible</span>',
-                            unsafe_allow_html=True)
-            row[3].markdown(f'<span class="chip">{d["status"]}</span>', unsafe_allow_html=True)
+    with st.container(border=True):
+        sec("Context · from admin / encounter")
+        consent_pill = '<span class="pill ok">recorded</span>' if c["consent"]["given"] else '<span class="pill err">missing</span>'
+        html('<div class="chips">'
+             f'<span class="kv">Patient <b>{c["patient"]["given"]} {c["patient"]["family"]}</b> ({c["patient"]["dob"]})</span>'
+             f'<span class="kv">Accident <b>{c["accident"]["adate"] or "— not set"}</b></span>'
+             f'<span class="kv">Scene <b>{c["accident"]["scene"]}</b></span>'
+             f'<span class="kv">Consent {consent_pill}</span></div>'
+             + (f'<div class="mono" style="color:#94a3b8">Cause: {c["accident"]["cause"]}</div>' if c["accident"]["cause"] else ""))
+
+    with st.container(border=True):
+        top = st.columns([3, 1.4])
+        top[0].markdown('<div class="sec" style="margin-top:6px">Injury diagnosis &amp; assistance · ACC45 Part C</div>',
+                        unsafe_allow_html=True)
+        top[1].markdown(f'<div class="chips" style="justify-content:flex-end">'
+                        f'<span class="pill blue">{len(c["diagnoses"])} dx · {len(eligible)} ACC-eligible</span></div>',
+                        unsafe_allow_html=True)
+        if not locked:
+            if st.button("➕ Add diagnosis"):
+                add_diagnosis_dialog(c)
+        else:
+            html('<span class="pill warn">Lodged — grid read-only; use Review tab to add a change</span>')
+
+        if c["diagnoses"]:
+            html(dx_table(c["diagnoses"]))
             if not locked:
-                if row[4].button("Remove", key="del_" + d["id"]):
-                    c["diagnoses"] = [x for x in c["diagnoses"] if x["id"] != d["id"]]
+                with st.expander("Edit diagnoses (remove)"):
+                    for d in c["diagnoses"]:
+                        r = st.columns([5, 1])
+                        r[0].markdown(f'{d["display"]} <span class="mono">{d["code"]}</span>', unsafe_allow_html=True)
+                        if r[1].button("Remove", key="del_" + d["id"]):
+                            c["diagnoses"] = [x for x in c["diagnoses"] if x["id"] != d["id"]]
+                            st.rerun()
+        else:
+            html('<div class="bnr err">✱ At least one injury diagnosis is needed.</div>')
+
+        if c["diagnoses"] and not eligible:
+            html('<div class="bnr err">⚠ <b>No ACC-eligible diagnosis yet.</b> Every diagnosis on this claim is '
+                 'outside the ACC claim reference set. Add at least one ACC-eligible injury to lodge — this claim '
+                 'cannot be submitted as-is.</div>')
+
+    cflag, ccap = st.columns(2)
+    with cflag:
+        with st.container(border=True):
+            sec("Clinical flags")
+            f = c["flags"]
+            yn = ["No", "Yes"]
+            f["gradual"] = st.radio("Work-related gradual process?", yn, horizontal=True, index=yn.index(f["gradual"]))
+            f["treatment"] = st.radio("Treatment injury?", yn, horizontal=True, index=yn.index(f["treatment"]))
+            f["home"] = st.radio("Home assistance required?", yn, horizontal=True, index=yn.index(f["home"]))
+            f["admitted"] = st.radio("Patient admitted?", yn, horizontal=True, index=yn.index(f["admitted"]))
+            if f["treatment"] == "Yes":
+                html('<div class="bnr warn">ℹ Treatment injury — ACC2152 + patient notes required before lodgement.</div>')
+            if f["gradual"] == "Yes":
+                html('<div class="bnr warn">ℹ Gradual process — medical practitioner only; work history needed.</div>')
+    with ccap:
+        with st.container(border=True):
+            sec("Ability to work · Part D / ACC18")
+            cap = c["capacity"]
+            cap["exertion"] = st.selectbox("Normal work exertion", EXERTION, index=EXERTION.index(cap["exertion"]))
+            states = ["", "Fully fit", "Fit for selected work", "Fully unfit"]
+            cap["state"] = st.radio("Work capacity", states, horizontal=True, index=states.index(cap["state"]),
+                                    format_func=lambda s: s or "—")
+            if cap["state"] == "Fit for selected work":
+                cap["restrictions"] = st.text_area("Restrictions / activities & type of work *", value=cap["restrictions"],
+                                                   height=68, placeholder="e.g. seated duties, no lifting >5kg, max 4 hrs/day")
+            if cap["state"] == "Fully unfit":
+                cap["justification"] = st.text_area("Justification (return would risk health/safety) *",
+                                                    value=cap["justification"], height=68)
+            k1, k2 = st.columns([1.3, 1])
+            cert_types = ["ACC45 initial (≤14 days)", "ACC18 (beyond 14 days)"]
+            cap["cert_type"] = k1.selectbox("Certificate", cert_types, index=cert_types.index(cap["cert_type"]))
+            cap["valid_from"] = k2.date_input("Valid from", value=cap["valid_from"] or date.today())
+            cap["valid_to"] = k2.date_input("Valid to", value=cap["valid_to"] or date.today())
+            if cap["state"] in ("Fit for selected work", "Fully unfit"):
+                st.caption("With prior earnings, may enable weekly compensation (informational).")
+
+    with st.container(border=True):
+        sec("Practitioner declaration · ACC45 Part E")
+        if not is_prescriber:
+            html('<div class="bnr warn">🔒 <b>Part E is restricted to doctors and nurse practitioners.</b> '
+                 'Switch role to a prescriber in the sidebar to sign, or route to an eligible colleague.</div>')
+        st.caption("I certify I have personally examined the patient, the condition results from an accident, "
+                   "and the patient authorised me to lodge this claim.")
+        dec = c["declaration"]
+        dcols = st.columns([1.4, 2])
+        dec["provider_no"] = dcols[0].text_input("Provider number", value=dec["provider_no"],
+                                                 placeholder="e.g. HP-44921", disabled=not is_prescriber)
+        with dcols[1]:
+            st.write("")
+            if dec["made"]:
+                html(f'<div class="bnr ok" style="margin-top:6px">✓ Declaration made {dec["date"]} by {dec["by"]}.</div>')
+            else:
+                if st.button("Complete declaration (Today)", type="primary", disabled=not is_prescriber):
+                    dec["made"] = True
+                    dec["date"] = date.today().isoformat()
+                    dec["by"] = "Dr A. Rangi"
+                    if not dec["provider_no"]:
+                        dec["provider_no"] = "HP-44921"
                     st.rerun()
-    else:
-        st.markdown('<div class="bnr err">✱ At least one injury diagnosis is needed.</div>', unsafe_allow_html=True)
-
-    if c["diagnoses"] and not eligible:
-        st.markdown('<div class="bnr err">⚠ <b>No ACC-eligible diagnosis yet.</b> Every diagnosis on this claim '
-                    'is outside the ACC claim reference set. Add at least one ACC-eligible injury to lodge — '
-                    'this claim cannot be submitted as-is.</div>', unsafe_allow_html=True)
-
-    st.divider()
-    # clinical flags
-    st.markdown('<span class="hd">Clinical flags</span>', unsafe_allow_html=True)
-    f = c["flags"]
-    fc1, fc2 = st.columns(2)
-    yn = ["No", "Yes"]
-    f["gradual"] = fc1.radio("Work-related gradual process?", yn, horizontal=True, index=yn.index(f["gradual"]))
-    f["treatment"] = fc1.radio("Treatment injury?", yn, horizontal=True, index=yn.index(f["treatment"]))
-    f["home"] = fc2.radio("Home assistance required?", yn, horizontal=True, index=yn.index(f["home"]))
-    f["admitted"] = fc2.radio("Patient admitted?", yn, horizontal=True, index=yn.index(f["admitted"]))
-    if f["treatment"] == "Yes":
-        st.markdown('<div class="bnr warn">ℹ Treatment injury — an ACC2152 and relevant patient notes are '
-                    'required before lodgement.</div>', unsafe_allow_html=True)
-    if f["gradual"] == "Yes":
-        st.markdown('<div class="bnr warn">ℹ Gradual process — only a medical practitioner may lodge; '
-                    'employment/work history needed.</div>', unsafe_allow_html=True)
-
-    st.divider()
-    # ability to work
-    st.markdown('<span class="hd">Ability to work — ACC45 Part D / ACC18 certificate</span>', unsafe_allow_html=True)
-    cap = c["capacity"]
-    cap["exertion"] = st.selectbox("Normal work exertion", EXERTION, index=EXERTION.index(cap["exertion"]))
-    states = ["", "Fully fit", "Fit for selected work", "Fully unfit"]
-    cap["state"] = st.radio("Work capacity", states, horizontal=True, index=states.index(cap["state"]),
-                            format_func=lambda s: s or "—")
-    if cap["state"] == "Fit for selected work":
-        cap["restrictions"] = st.text_area("Restrictions / activities & type of work *", value=cap["restrictions"],
-                                           placeholder="e.g. seated duties only, no lifting >5kg, max 4 hrs/day")
-    if cap["state"] == "Fully unfit":
-        cap["justification"] = st.text_area("Justification (return to work would risk health/safety) *",
-                                            value=cap["justification"])
-    cc1, cc2 = st.columns(2)
-    cert_types = ["ACC45 initial (≤14 days)", "ACC18 (beyond 14 days)"]
-    cap["cert_type"] = cc1.selectbox("Certificate type", cert_types, index=cert_types.index(cap["cert_type"]))
-    cap["valid_from"] = cc2.date_input("Valid from", value=cap["valid_from"] or date.today())
-    cap["valid_to"] = cc2.date_input("Valid to", value=cap["valid_to"] or date.today())
-    if cap["state"] in ("Fit for selected work", "Fully unfit"):
-        st.caption("With prior earnings, this certification may make the patient eligible for weekly "
-                   "compensation (informational — not a benefit decision).")
-
-    st.divider()
-    # declaration
-    st.markdown('<span class="hd">Practitioner declaration — ACC45 Part E</span>', unsafe_allow_html=True)
-    if not is_prescriber:
-        st.markdown('<div class="bnr warn">🔒 <b>Part E is restricted to doctors and nurse practitioners.</b> '
-                    'You are signed in as a limited-scope provider — switch role to a prescriber in the sidebar '
-                    'to sign, or route to an eligible colleague.</div>', unsafe_allow_html=True)
-    st.caption("I certify that I have personally examined the patient, that the condition is the result of an "
-               "accident, and that the patient has authorised me to lodge this claim.")
-    dec = c["declaration"]
-    dec["provider_no"] = st.text_input("Provider number", value=dec["provider_no"],
-                                       placeholder="e.g. HP-44921", disabled=not is_prescriber)
-    if dec["made"]:
-        st.markdown(f'<div class="bnr ok">✓ Declaration made {dec["date"]} by {dec["by"]}.</div>',
-                    unsafe_allow_html=True)
-    else:
-        if st.button("Complete declaration (Today)", type="primary", disabled=not is_prescriber):
-            dec["made"] = True
-            dec["date"] = date.today().isoformat()
-            dec["by"] = "Dr A. Rangi"
-            if not dec["provider_no"]:
-                dec["provider_no"] = "HP-44921"
-            st.rerun()
 
 
 def review_panel(c):
     errs, warns, can = validate(c)
-    st.markdown('<span class="hd">Lodgement readiness</span>', unsafe_allow_html=True)
-    if not errs:
-        st.markdown('<div class="bnr ok">✓ All mandatory requirements met — ready to lodge.</div>',
-                    unsafe_allow_html=True)
-    else:
-        st.markdown('<div class="bnr err"><b>Cannot lodge yet:</b><ul>'
-                    + "".join(f"<li>{e}</li>" for e in errs) + "</ul></div>", unsafe_allow_html=True)
-    if warns:
-        st.markdown('<div class="bnr warn"><b>Warnings (non-blocking):</b><ul>'
-                    + "".join(f"<li>{w}</li>" for w in warns) + "</ul></div>", unsafe_allow_html=True)
+    with st.container(border=True):
+        sec("Lodgement readiness")
+        if not errs:
+            html('<div class="bnr ok">✓ All mandatory requirements met — ready to lodge.</div>')
+        else:
+            html('<div class="bnr err"><b>Cannot lodge yet:</b><ul>'
+                 + "".join(f"<li>{e}</li>" for e in errs) + "</ul></div>")
+        if warns:
+            html('<div class="bnr warn"><b>Warnings (non-blocking):</b><ul>'
+                 + "".join(f"<li>{w}</li>" for w in warns) + "</ul></div>")
 
-    if c["status"] in ("draft", "ready"):
-        st.caption("Validation passed." if can else "Complete is disabled until validation passes.")
-        if st.button("Complete & lodge ACC45", type="primary", disabled=not can):
-            for d in c["diagnoses"]:
-                d["status"] = "lodged"
-            c["status"] = "lodged"
-            c["decision"] = "Received"
-            st.rerun()
-        return
+        if c["status"] in ("draft", "ready"):
+            lc = st.columns([2, 3])
+            if lc[0].button("Complete & lodge ACC45", type="primary", disabled=not can, use_container_width=True):
+                for d in c["diagnoses"]:
+                    d["status"] = "lodged"
+                c["status"] = "lodged"
+                c["decision"] = "Received"
+                st.rerun()
+            lc[1].caption("Validation passed." if can else "Complete is disabled until validation passes.")
+            return
 
     # lodged view
-    st.markdown(f'<div class="bnr info">✓ ACC45 lodged. Decision: <b>{c["decision"]}</b>. Diagnosis grid is now '
-                f'read-only; further clinical changes go through a diagnosis-change request.</div>',
-                unsafe_allow_html=True)
-    if c["status"] == "lodged":
-        st.caption("Simulate ACC decision:")
-        d1, d2, d3, _ = st.columns([1, 1, 1, 4])
-        if d1.button("Accepted"):
-            c["status"] = "accepted"; c["decision"] = "Accepted"; st.rerun()
-        if d2.button("Held"):
-            c["status"] = "held"; c["decision"] = "Held"; st.rerun()
-        if d3.button("Declined"):
-            c["status"] = "declined"; c["decision"] = "Declined"; st.rerun()
+    with st.container(border=True):
+        html(f'<div class="bnr info">✓ ACC45 lodged. Decision: <b>{c["decision"]}</b>. Diagnosis grid is now '
+             f'read-only; further clinical changes go through a diagnosis-change request.</div>')
+        if c["status"] == "lodged":
+            st.caption("Simulate ACC decision:")
+            d1, d2, d3, _ = st.columns([1, 1, 1, 4])
+            if d1.button("Accepted"):
+                c["status"] = "accepted"; c["decision"] = "Accepted"; st.rerun()
+            if d2.button("Held"):
+                c["status"] = "held"; c["decision"] = "Held"; st.rerun()
+            if d3.button("Declined"):
+                c["status"] = "declined"; c["decision"] = "Declined"; st.rerun()
 
-    st.markdown("**Diagnoses of record**")
-    for d in c["diagnoses"]:
-        row = st.columns([3, 1, 1.2, 1.4])
-        row[0].markdown(f'{d["display"]} <span class="chip">{d["code"]}</span>', unsafe_allow_html=True)
-        row[1].write(d["side"])
-        row[2].markdown('<span class="chip ok">Yes</span>' if d["acc"] else '<span class="chip err">No</span>',
-                        unsafe_allow_html=True)
-        row[3].markdown(f'<span class="chip">{d["status"]}</span>', unsafe_allow_html=True)
+        sec("Diagnoses of record")
+        html(dx_table(c["diagnoses"]))
+        if st.button("➕ Add / change diagnosis (post-lodgement)", type="primary"):
+            change_request_dialog(c)
 
-    if st.button("➕ Add / change diagnosis (post-lodgement)", type="primary"):
-        change_request_dialog(c)
-
-    if c["change_requests"]:
-        st.markdown("**Diagnosis change requests**")
-        for r in c["change_requests"]:
-            st.write(f'• {r["kind"]} — {r["display"]} ({r["code"]}) · same event: '
-                     f'{"✓" if r["same_event"] else "—"} · bundled: {r["bundled"]} · status: {r["status"]}')
+        if c["change_requests"]:
+            sec("Diagnosis change requests")
+            rows = ""
+            for r in c["change_requests"]:
+                se = "✓" if r["same_event"] else "—"
+                rows += (f'<tr><td>{r["kind"]}</td><td>{r["display"]} <span class="mono">{r["code"]}</span></td>'
+                         f'<td>{se}</td><td>{r["bundled"]}</td><td><span class="pill warn">{r["status"]}</span></td></tr>')
+            html('<table class="tbl"><thead><tr><th>Kind</th><th>Diagnosis</th><th>Same event</th>'
+                 f'<th>Bundled</th><th>Status</th></tr></thead><tbody>{rows}</tbody></table>')
 
 
 def workspace(c):
-    if st.button("← Home"):
+    errs, _, can = validate(c)
+    hc = st.columns([1, 6])
+    if hc[0].button("← Home", use_container_width=True):
         st.session_state.active = None
         st.rerun()
-    st.markdown(f'### ACC45 {c["reference"]} &nbsp; {status_chip(c["status"])}', unsafe_allow_html=True)
-    st.caption(f'{c["patient"]["given"]} {c["patient"]["family"]} · encounter {c["encounter"]["external_id"]}')
-    tab_admin, tab_clin, tab_review = st.tabs(["Administrative", "Clinician", "Review & lodge"])
-    with tab_admin:
+    html('<div class="apphdr"><span class="brand">🩺</span>'
+         f'<span class="ref">{c["reference"]}</span>{status_pill(c["status"])}'
+         f'<span class="sub">{c["patient"]["given"]} {c["patient"]["family"]} · '
+         f'encounter {c["encounter"]["external_id"]} · accident {c["accident"]["adate"] or "—"}</span>'
+         '<span class="grow"></span>'
+         f'<span class="sub">{"✓ ready" if can else str(len(errs))+" to fix"}</span></div>')
+
+    t_admin, t_clin, t_review = st.tabs(["📋 Administrative", "🩺 Clinician", "✅ Review & lodge"])
+    with t_admin:
         admin_panel(c)
-    with tab_clin:
+    with t_clin:
         clinician_panel(c)
-    with tab_review:
+    with t_review:
         review_panel(c)
 
 
@@ -517,14 +623,18 @@ def workspace(c):
 # sidebar (role) + router
 # --------------------------------------------------------------------------
 with st.sidebar:
-    st.markdown("### ACC Claim Console")
+    st.markdown("### 🩺 ACC Claim Console")
     st.caption("research mockup — stubbed ACC & terminology")
+    st.divider()
     roles = {"prescriber": "Dr A. Rangi — GP (prescriber)",
              "limited": "J. Neho — Physiotherapist (limited)",
              "admin": "R. Patel — Reception (admin)"}
     st.session_state.role = st.radio("Signed in as", list(roles.keys()),
                                      format_func=lambda r: roles[r],
                                      index=list(roles).index(st.session_state.role))
+    st.divider()
+    st.caption("Try: switch to the physiotherapist to see Part E lock; add only a non-eligible code (e.g. "
+               "“Anxiety disorder”) to see the lodge block.")
 
 c = active_claim()
 if c is None:
