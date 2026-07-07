@@ -272,13 +272,96 @@ def dx_table(diags, with_status=True):
 
 
 # --------------------------------------------------------------------------
+# sample (pre-saved) claims — openable & editable from the dashboard
+# --------------------------------------------------------------------------
+def _base(ref):
+    return {
+        "id": uid(), "reference": ref, "number_source": "acc_allocation_api",
+        "status": "draft", "decision": None,
+        "encounter": {"external_id": "ENC-" + str(random.randint(100000, 999999)), "source": "pms_context",
+                      "facility": "Riverside Medical Centre", "provider": "Dr A. Rangi (GP)",
+                      "klass": "Outpatient / GP consult", "source_system": "Medtech PMS"},
+        "patient": {"pas_id": "", "given": "", "family": "", "dob": "", "nhi": "", "mobile": "", "email": "", "address": ""},
+        "employment": {"status": "Not employed in NZ", "occupation": "Unemployed", "employer": ""},
+        "accident": {"adate": None, "atime": "", "location": "", "scene": "Home",
+                     "workplace": "No", "vehicle": "No", "sporting": "No", "cause": ""},
+        "consent": {"given": False, "at": None},
+        "diagnoses": [],
+        "flags": {"gradual": "No", "treatment": "No", "admitted": "No", "home": "No"},
+        "capacity": {"exertion": "", "state": "", "restrictions": "", "justification": "",
+                     "cert_type": "ACC45 initial (≤14 days)", "valid_from": None, "valid_to": None},
+        "declaration": {"made": False, "date": None, "by": None, "provider_no": ""},
+        "change_requests": [],
+    }
+
+
+def _merge(c, over):
+    for k, v in over.items():
+        if isinstance(v, dict) and isinstance(c.get(k), dict):
+            c[k].update(v)
+        else:
+            c[k] = v
+    return c
+
+
+def _dx(code, disp, side, acc, status="draft", primary=False):
+    return {"id": uid(), "code": code, "display": disp, "site": "", "side": side,
+            "acc": acc, "primary": primary, "status": status}
+
+
+def seed_claims():
+    # 1) In-progress DRAFT — consent + one diagnosis captured, but not yet certified/declared (mid-edit).
+    c1 = _merge(_base("IO16452"), {
+        "status": "draft",
+        "patient": {"pas_id": "PAS-40021", "given": "Aroha", "family": "Ngata", "dob": "1991-06-02",
+                    "nhi": "KLP2286", "mobile": "021 448 1190", "address": "9 Tui Lane, Christchurch 8014"},
+        "employment": {"status": "Employee", "occupation": "Warehouse assistant", "employer": "Southern Distribution Ltd"},
+        "accident": {"adate": date(2026, 7, 6), "atime": "14:20", "location": "Christchurch City", "scene": "Work",
+                     "workplace": "Yes", "cause": "lifting a box off a pallet – felt sudden shoulder pain"},
+        "consent": {"given": True, "at": "06/07/2026 14:40"},
+        "diagnoses": [_dx("209815008", "Sprain of rotator cuff (shoulder)", "Right", True, "draft", True)],
+    })
+    # 2) READY to lodge — fully valid; open the Review tab to lodge it.
+    c2 = _merge(_base("IO16454"), {
+        "status": "ready",
+        "patient": {"pas_id": "PAS-77310", "given": "David", "family": "Thorne", "dob": "1974-11-19",
+                    "nhi": "MTR9043", "mobile": "027 220 6655", "address": "22 Kowhai Road, Rangiora 7400"},
+        "employment": {"status": "Self-employed", "occupation": "Builder", "employer": ""},
+        "accident": {"adate": date(2026, 7, 7), "atime": "09:05", "location": "Rangiora", "scene": "Home",
+                     "cause": "slipped off a step ladder – landed awkwardly on left ankle"},
+        "consent": {"given": True, "at": "07/07/2026 09:30"},
+        "diagnoses": [_dx("283384001", "Sprain of ligament of ankle", "Left", True, "draft", True)],
+        "capacity": {"exertion": "Heavy", "state": "Fit for selected work",
+                     "restrictions": "seated/office duties only, no ladder work, no lifting >5kg, max 6 hrs/day",
+                     "cert_type": "ACC18 (beyond 14 days)", "valid_from": date(2026, 7, 7), "valid_to": date(2026, 7, 21)},
+        "declaration": {"made": True, "date": "2026-07-07", "by": "Dr A. Rangi", "provider_no": "HP-44921"},
+    })
+    # 3) LODGED / ACCEPTED — grid read-only; edit via post-lodgement diagnosis change in the Review tab.
+    c3 = _merge(_base("IO16456"), {
+        "status": "accepted", "decision": "Accepted",
+        "patient": {"pas_id": "PAS-51188", "given": "Sina", "family": "Faleolo", "dob": "1998-02-27",
+                    "nhi": "NBW7712", "mobile": "022 909 3312", "address": "5 Harakeke Street, Christchurch 8025"},
+        "employment": {"status": "Employee", "occupation": "Chef", "employer": "Harbourview Restaurant"},
+        "accident": {"adate": date(2026, 6, 30), "atime": "19:45", "location": "Christchurch City", "scene": "Work",
+                     "workplace": "Yes", "cause": "slipped on wet kitchen floor – put out right hand to break the fall"},
+        "consent": {"given": True, "at": "30/06/2026 20:10"},
+        "diagnoses": [_dx("20946005", "Fracture of distal radius (wrist)", "Right", True, "accepted", True)],
+        "capacity": {"exertion": "Medium", "state": "Fully unfit",
+                     "justification": "wrist immobilised in cast; unable to perform any kitchen duties safely",
+                     "cert_type": "ACC18 (beyond 14 days)", "valid_from": date(2026, 6, 30), "valid_to": date(2026, 7, 28)},
+        "declaration": {"made": True, "date": "2026-06-30", "by": "Dr A. Rangi", "provider_no": "HP-44921"},
+    })
+    return [c1, c2, c3]
+
+
+# --------------------------------------------------------------------------
 # session state init
 # --------------------------------------------------------------------------
 if "claims" not in st.session_state:
-    st.session_state.claims = []
+    st.session_state.seq = 16457          # new claims continue after the seeded refs
+    st.session_state.claims = seed_claims()
     st.session_state.active = None
     st.session_state.role = "prescriber"
-    st.session_state.seq = 16457
 
 st.markdown(CSS, unsafe_allow_html=True)
 
@@ -368,6 +451,8 @@ def dashboard():
         return
     with st.container(border=True):
         sec("Claims")
+        st.caption("Sample claims are pre-loaded — click **Open** to edit. Try IO16452 (in progress), "
+                   "IO16454 (ready to lodge), or IO16456 (lodged — edit via post-lodgement change).")
         h = st.columns([1.1, 1.7, 1.5, 1.4, 1.2, 0.8])
         for col, t in zip(h, ["ACC45 NO.", "PATIENT", "ENCOUNTER", "ACCIDENT DATE", "STATUS", ""]):
             col.markdown(f'<div class="sec" style="margin:0">{t}</div>', unsafe_allow_html=True)
