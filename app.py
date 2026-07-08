@@ -19,28 +19,14 @@ from datetime import date, datetime
 
 import streamlit as st
 
+import connectors as cx  # external integration seams (all stubbed) — see PRODUCTION-READINESS.md
+
 st.set_page_config(page_title="ACC Claim Console", page_icon="🩺", layout="wide")
 
 # --------------------------------------------------------------------------
-# Stubbed SNOMED CT terminology (acc-claim-reference-set membership).
+# SNOMED CT terminology (the ACC claim reference set) is provided by the
+# terminology connector (connectors.terminology) — a stub of the NZHTS value set.
 # --------------------------------------------------------------------------
-TERM = [
-    {"code": "283384001", "display": "Sprain of ligament of ankle", "site": "Ankle", "acc": True},
-    {"code": "262911006", "display": "Laceration of finger", "site": "Finger", "acc": True},
-    {"code": "20946005", "display": "Fracture of distal radius (wrist)", "site": "Wrist", "acc": True},
-    {"code": "82576008", "display": "Contusion of knee", "site": "Knee", "acc": True},
-    {"code": "209815008", "display": "Sprain of rotator cuff (shoulder)", "site": "Shoulder", "acc": True},
-    {"code": "312608009", "display": "Laceration - injury", "site": "", "acc": True},
-    {"code": "110030002", "display": "Concussion injury of brain", "site": "Head", "acc": True},
-    {"code": "125605004", "display": "Fracture of bone", "site": "", "acc": True},
-    {"code": "44465007", "display": "Sprain of neck", "site": "Neck", "acc": True},
-    {"code": "81680005", "display": "Closed fracture of shaft of tibia", "site": "Lower leg", "acc": True},
-    {"code": "7200002", "display": "Alcohol dependence syndrome", "site": "", "acc": False},
-    {"code": "73211009", "display": "Diabetes mellitus", "site": "", "acc": False},
-    {"code": "38341003", "display": "Hypertensive disorder", "site": "", "acc": False},
-    {"code": "48694002", "display": "Anxiety disorder", "site": "", "acc": False},
-    {"code": "183932001", "display": "Presentation for social reasons", "site": "", "acc": False},
-]
 
 EMP_STATUSES = ["Not employed in NZ", "Retired", "Employee", "Self-employed", "Owner employee", "Other"]
 SCENES = ["Home", "Work", "Road", "Sports facility", "School", "Other"]
@@ -180,27 +166,22 @@ def uid():
 
 
 def allocate_number():
-    n = "IO" + str(st.session_state.seq)
+    # ACC Claim Number Allocation API (stubbed via connectors.acc)
+    n = cx.acc.allocate_claim_number(st.session_state.seq)
     st.session_state.seq += 1
     return n
 
 
 def new_claim():
+    ctx = cx.pms.get_encounter_context()  # PMS/PAS launch context (stubbed)
     return {
         "id": uid(),
         "reference": allocate_number(),
         "number_source": "acc_allocation_api",
         "status": "draft",
         "decision": None,
-        "encounter": {
-            "external_id": "ENC-" + str(random.randint(100000, 999999)),
-            "source": "pms_context", "facility": "Riverside Medical Centre",
-            "provider": "Dr A. Rangi (GP)", "klass": "Outpatient / GP consult",
-            "source_system": "Medtech PMS",
-        },
-        "patient": {"pas_id": "PAS-88213", "given": "Margaret", "family": "Ellery",
-                    "dob": "1949-03-11", "nhi": "JBX4728", "mobile": "021 555 0192",
-                    "email": "", "address": "14 Rewi Street, Christchurch 8022"},
+        "encounter": ctx["encounter"],
+        "patient": ctx["patient"],
         "employment": {"status": "Not employed in NZ", "occupation": "Unemployed", "employer": ""},
         "accident": {"adate": None, "atime": "08:34", "location": "Christchurch City",
                      "scene": "Home", "workplace": "No", "vehicle": "No", "sporting": "No", "cause": ""},
@@ -246,6 +227,8 @@ def validate(c):
         errs.append("Provider number is required.")
     if not p["nhi"]:
         warns.append("No NHI supplied — slows processing.")
+    elif not cx.nhi.validate(p["nhi"]):
+        warns.append("NHI format looks invalid (real check-character validation is via the NHI service).")
     if not p["mobile"]:
         warns.append("No mobile — patient won't get an SMS decision.")
     return errs, warns, (len(errs) == 0)
@@ -388,9 +371,7 @@ st.markdown(CSS, unsafe_allow_html=True)
 def add_diagnosis_dialog(c):
     scoped = st.checkbox("Scope to ACC-claimable concepts", value=True)
     q = st.text_input("Search SNOMED CT", placeholder="e.g. sprain, wrist, laceration, knee")
-    pool = [t for t in TERM if (t["acc"] or not scoped)]
-    if q.strip():
-        pool = [t for t in pool if q.lower() in t["display"].lower() or q in t["code"]]
+    pool = cx.terminology.search(q, eligible_only=scoped)  # FHIR $expand (stub)
     if not pool:
         st.info("No matches.")
         return
@@ -417,7 +398,7 @@ def change_request_dialog(c):
          '(not a re-lodgement). The new injury must be from the <b>same accident</b> already on this ACC45. '
          'It receives its own cover decision.</div>')
     q = st.text_input("Search SNOMED CT", placeholder="e.g. knee, sprain")
-    pool = TERM if not q.strip() else [t for t in TERM if q.lower() in t["display"].lower() or q in t["code"]]
+    pool = cx.terminology.search(q, eligible_only=False)  # FHIR $expand (stub)
     if not pool:
         st.info("No matches.")
         return
@@ -440,6 +421,7 @@ def change_request_dialog(c):
         c["diagnoses"].append({"id": uid(), "code": sel["code"], "display": sel["display"], "site": sel["site"],
                                "side": side, "acc": sel["acc"], "primary": False, "status": "change_pending",
                                "source_request": req["id"]})
+        cx.audit.record(st.session_state.role, "diagnosis_change_request", f'{c["reference"]}: +{sel["code"]}')
         st.rerun()
 
 
@@ -507,6 +489,12 @@ def admin_panel(c):
             g1, g2 = st.columns(2)
             p["dob"] = g1.text_input("DOB * (YYYY-MM-DD)", value=p["dob"])
             p["nhi"] = g2.text_input("NHI", value=p["nhi"]).upper()
+            if p["nhi"]:
+                if cx.nhi.validate(p["nhi"]):
+                    html('<span class="pill ok">NHI format valid</span> '
+                         '<span class="mono" style="color:var(--slate-400)">check-digit &amp; demographics via NHI service (stub)</span>')
+                else:
+                    html('<span class="pill err">NHI format invalid</span>')
             g3, g4 = st.columns(2)
             p["mobile"] = g3.text_input("Mobile", value=p["mobile"])
             p["email"] = g4.text_input("Email", value=p["email"])
@@ -528,6 +516,7 @@ def admin_panel(c):
                 st.caption("3-question script: (1) collect/use/disclose, (2) true & correct, (3) authorise lodgement.")
                 if st.button("Record patient consent (all three = Yes)", type="primary"):
                     c["consent"] = {"given": True, "at": datetime.now().strftime("%d/%m/%Y %H:%M")}
+                    cx.audit.record(st.session_state.role, "consent_recorded", c["reference"])
                     st.rerun()
 
     with st.container(border=True):
@@ -548,7 +537,7 @@ def admin_panel(c):
 
 def clinician_panel(c):
     role = st.session_state.role
-    is_prescriber = role == "prescriber"
+    is_prescriber = cx.auth.can_sign_part_e(role)  # authorisation via auth connector (stub)
     locked = c["status"] not in ("draft", "ready")
     eligible = [d for d in c["diagnoses"] if d["acc"]]
 
@@ -648,9 +637,10 @@ def clinician_panel(c):
                 if st.button("Complete declaration (Today)", type="primary", disabled=not is_prescriber):
                     dec["made"] = True
                     dec["date"] = date.today().isoformat()
-                    dec["by"] = "Dr A. Rangi"
+                    dec["by"] = cx.auth.current_user(st.session_state.role)["name"]
                     if not dec["provider_no"]:
-                        dec["provider_no"] = "HP-44921"
+                        dec["provider_no"] = cx.hpi.default_provider_number()
+                    cx.audit.record(st.session_state.role, "part_e_declaration", c["reference"])
                     st.rerun()
 
 
@@ -759,7 +749,9 @@ def review_panel(c):
                 for d in c["diagnoses"]:
                     d["status"] = "lodged"
                 c["status"] = "lodged"
-                c["decision"] = "Received"
+                c["decision"] = cx.acc.lodge(c)  # ACC eLodgement (stub)
+                cx.audit.record(st.session_state.role, "lodge_acc45", c["reference"])
+                cx.notification.send_decision_sms(c["patient"]["mobile"], c["reference"], c["decision"])
                 st.rerun()
             lc[1].caption("Validation passed." if can else "Complete is disabled until validation passes.")
 
@@ -775,11 +767,14 @@ def review_panel(c):
                 st.caption("Simulate ACC decision:")
                 d1, d2, d3, _ = st.columns([1, 1, 1, 4])
                 if d1.button("Accepted"):
-                    c["status"] = "accepted"; c["decision"] = "Accepted"; st.rerun()
+                    c["status"] = "accepted"; c["decision"] = cx.acc.decision("Accepted")
+                    cx.audit.record(st.session_state.role, "acc_decision", f'{c["reference"]}: Accepted'); st.rerun()
                 if d2.button("Held"):
-                    c["status"] = "held"; c["decision"] = "Held"; st.rerun()
+                    c["status"] = "held"; c["decision"] = cx.acc.decision("Held")
+                    cx.audit.record(st.session_state.role, "acc_decision", f'{c["reference"]}: Held'); st.rerun()
                 if d3.button("Declined"):
-                    c["status"] = "declined"; c["decision"] = "Declined"; st.rerun()
+                    c["status"] = "declined"; c["decision"] = cx.acc.decision("Declined")
+                    cx.audit.record(st.session_state.role, "acc_decision", f'{c["reference"]}: Declined'); st.rerun()
 
             sec("Post-lodgement diagnosis changes")
             if st.button("➕ Add / change diagnosis (post-lodgement)", type="primary"):
@@ -841,9 +836,14 @@ with st.sidebar:
     st.session_state.role = st.radio("Signed in as", list(roles.keys()),
                                      format_func=lambda r: roles[r],
                                      index=list(roles).index(st.session_state.role))
+    st.caption("🔒 Sign-in is **simulated** (dev only). Production uses My Health Account "
+               "Workforce (OIDC) via the auth connector.")
     st.divider()
     st.caption("Try: switch to the physiotherapist to see Part E lock; add only a non-eligible code (e.g. "
                "“Anxiety disorder”) to see the lodge block.")
+    with st.expander("Integration status (stubbed connectors)"):
+        for name, mode in cx.CONNECTOR_MODE.items():
+            st.caption(f"• {name} — {mode}")
 
 c = active_claim()
 if c is None:

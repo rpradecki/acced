@@ -63,9 +63,12 @@ git push -u origin main
 | File | Purpose |
 |---|---|
 | `app.py` | The whole app (single file). |
+| `connectors.py` | External integration seams (auth, NHI, HPI, PMS, terminology, ACC, audit, persistence, notifications) — all **stubbed**. |
 | `requirements.txt` | `streamlit>=1.37` (needs `st.dialog`). |
 | `.streamlit/config.toml` | Theme + headless server. |
 | `.gitignore` | Excludes venv, caches, secrets. |
+| `AS-BUILT-SPEC.md` | Build-agnostic spec to replicate the app on any stack. |
+| `PRODUCTION-READINESS.md` | Gap analysis for deploying into the Health NZ ecosystem. |
 
 ## Notes for turning this into a real product
 
