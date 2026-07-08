@@ -161,6 +161,13 @@ CSS = """
     border-bottom:1px solid var(--slate-200); font-size:10px; text-transform:uppercase; letter-spacing:.05em; font-weight:700;}
   table.tbl td{padding:6px 10px; border-bottom:1px solid var(--slate-100); color:var(--slate-700); vertical-align:middle;}
   table.tbl tr:last-child td{border-bottom:0;}
+
+  /* definition grid for the claim summary */
+  .dlgrid{display:grid; grid-template-columns:1fr 1fr; gap:0 22px; margin:2px 0 6px;}
+  .dl{display:flex; gap:10px; padding:4px 0; border-bottom:1px solid var(--slate-100);}
+  .dt{color:var(--slate-500); font-size:11.5px; min-width:132px; font-weight:600; flex:none;}
+  .dd{color:var(--navy); font-size:12.5px; font-weight:600;}
+  @media(max-width:700px){.dlgrid{grid-template-columns:1fr;}}
 </style>
 """
 
@@ -647,6 +654,93 @@ def clinician_panel(c):
                     st.rerun()
 
 
+def render_summary(c):
+    """Full ACC45 summary of everything entered on the form."""
+    p, e, a, cap, dec, fl = (c["patient"], c["employment"], c["accident"],
+                             c["capacity"], c["declaration"], c["flags"])
+
+    def dl(pairs):
+        return ('<div class="dlgrid">' + "".join(
+            f'<div class="dl"><span class="dt">{k}</span>'
+            f'<span class="dd">{v if v not in (None, "", "None") else "—"}</span></div>'
+            for k, v in pairs) + '</div>')
+
+    def wide(k, v):
+        return f'<div class="dl" style="border:0"><span class="dt">{k}</span><span class="dd">{v or "—"}</span></div>'
+
+    with st.container(border=True):
+        sec("Claim summary · ACC45")
+        html(dl([
+            ("ACC45 number", c["reference"]),
+            ("Status", STATUS.get(c["status"], ("", c["status"]))[1]),
+            ("Encounter", c["encounter"]["external_id"]),
+            ("Source system", c["encounter"]["source_system"]),
+            ("Facility", c["encounter"]["facility"]),
+            ("Attending provider", c["encounter"]["provider"]),
+        ]))
+
+        sec("Patient · Part A")
+        html(dl([
+            ("Name", f'{p["given"]} {p["family"]}'.strip()),
+            ("Date of birth", p["dob"]),
+            ("NHI", p["nhi"]),
+            ("Mobile", p["mobile"]),
+            ("Email", p["email"]),
+            ("Address", p["address"]),
+        ]))
+
+        sec("Employment · Part B")
+        html(dl([("Employment status", e["status"]), ("Occupation", e["occupation"]),
+                 ("Employer", e["employer"])]))
+
+        sec("Accident · Part B")
+        html(dl([
+            ("Date / time", f'{a["adate"] or "—"} {a["atime"]}'.strip()),
+            ("Location", a["location"]),
+            ("Scene", a["scene"]),
+            ("Workplace accident", a["workplace"]),
+            ("Moving vehicle on road", a["vehicle"]),
+            ("Sporting injury", a["sporting"]),
+        ]))
+        html(wide("Cause of injury", a["cause"]))
+
+        sec("Consent · Part E (patient)")
+        if c["consent"]["given"]:
+            html(f'<span class="pill ok">Consent recorded</span> &nbsp;'
+                 f'<span class="kv">Given {c["consent"]["at"]} · all three authorisations</span>')
+        else:
+            html('<span class="pill err">Consent not recorded</span>')
+
+        sec("Diagnoses · Part C")
+        if c["diagnoses"]:
+            html(dx_table(c["diagnoses"]))
+        else:
+            html('<span class="pill err">No diagnoses entered</span>')
+        html('<div class="chips">'
+             f'<span class="kv">Gradual process <b>{fl["gradual"]}</b></span>'
+             f'<span class="kv">Treatment injury <b>{fl["treatment"]}</b></span>'
+             f'<span class="kv">Admitted <b>{fl["admitted"]}</b></span>'
+             f'<span class="kv">Home assistance <b>{fl["home"]}</b></span></div>')
+
+        sec("Ability to work · Part D / ACC18")
+        html(dl([
+            ("Normal work exertion", cap["exertion"]),
+            ("Work capacity", cap["state"]),
+            ("Certificate", cap["cert_type"]),
+            ("Valid", f'{cap["valid_from"] or "—"} → {cap["valid_to"] or "—"}'),
+        ]))
+        restr = cap["restrictions"] or cap["justification"]
+        if restr:
+            html(wide("Restrictions / justification", restr))
+
+        sec("Practitioner declaration · Part E")
+        if dec["made"]:
+            html(f'<span class="pill ok">Declaration made</span> &nbsp;'
+                 f'<span class="kv">{dec["date"]} · {dec["by"]} · provider {dec["provider_no"]}</span>')
+        else:
+            html('<span class="pill err">Declaration not completed</span>')
+
+
 def review_panel(c):
     errs, warns, can = validate(c)
     with st.container(border=True):
@@ -659,7 +753,6 @@ def review_panel(c):
         if warns:
             html('<div class="bnr warn"><b>Warnings (non-blocking):</b><ul>'
                  + "".join(f"<li>{w}</li>" for w in warns) + "</ul></div>")
-
         if c["status"] in ("draft", "ready"):
             lc = st.columns([2, 3])
             if lc[0].button("Complete & lodge ACC45", type="primary", disabled=not can, use_container_width=True):
@@ -669,36 +762,37 @@ def review_panel(c):
                 c["decision"] = "Received"
                 st.rerun()
             lc[1].caption("Validation passed." if can else "Complete is disabled until validation passes.")
-            return
 
-    # lodged view
-    with st.container(border=True):
-        html(f'<div class="bnr info">✓ ACC45 lodged. Decision: <b>{c["decision"]}</b>. Diagnosis grid is now '
-             f'read-only; further clinical changes go through a diagnosis-change request.</div>')
-        if c["status"] == "lodged":
-            st.caption("Simulate ACC decision:")
-            d1, d2, d3, _ = st.columns([1, 1, 1, 4])
-            if d1.button("Accepted"):
-                c["status"] = "accepted"; c["decision"] = "Accepted"; st.rerun()
-            if d2.button("Held"):
-                c["status"] = "held"; c["decision"] = "Held"; st.rerun()
-            if d3.button("Declined"):
-                c["status"] = "declined"; c["decision"] = "Declined"; st.rerun()
+    # Full ACC45 summary — directly under Lodgement readiness, for every claim state.
+    render_summary(c)
 
-        sec("Diagnoses of record")
-        html(dx_table(c["diagnoses"]))
-        if st.button("➕ Add / change diagnosis (post-lodgement)", type="primary"):
-            change_request_dialog(c)
+    # Post-lodgement actions (only once the claim has been lodged).
+    if c["status"] not in ("draft", "ready"):
+        with st.container(border=True):
+            html(f'<div class="bnr info">✓ ACC45 lodged. Decision: <b>{c["decision"]}</b>. Diagnosis grid is now '
+                 f'read-only; further clinical changes go through a diagnosis-change request.</div>')
+            if c["status"] == "lodged":
+                st.caption("Simulate ACC decision:")
+                d1, d2, d3, _ = st.columns([1, 1, 1, 4])
+                if d1.button("Accepted"):
+                    c["status"] = "accepted"; c["decision"] = "Accepted"; st.rerun()
+                if d2.button("Held"):
+                    c["status"] = "held"; c["decision"] = "Held"; st.rerun()
+                if d3.button("Declined"):
+                    c["status"] = "declined"; c["decision"] = "Declined"; st.rerun()
 
-        if c["change_requests"]:
-            sec("Diagnosis change requests")
-            rows = ""
-            for r in c["change_requests"]:
-                se = "✓" if r["same_event"] else "—"
-                rows += (f'<tr><td>{r["kind"]}</td><td>{r["display"]} <span class="mono">{r["code"]}</span></td>'
-                         f'<td>{se}</td><td>{r["bundled"]}</td><td><span class="pill warn">{r["status"]}</span></td></tr>')
-            html('<table class="tbl"><thead><tr><th>Kind</th><th>Diagnosis</th><th>Same event</th>'
-                 f'<th>Bundled</th><th>Status</th></tr></thead><tbody>{rows}</tbody></table>')
+            sec("Post-lodgement diagnosis changes")
+            if st.button("➕ Add / change diagnosis (post-lodgement)", type="primary"):
+                change_request_dialog(c)
+
+            if c["change_requests"]:
+                rows = ""
+                for r in c["change_requests"]:
+                    se = "✓" if r["same_event"] else "—"
+                    rows += (f'<tr><td>{r["kind"]}</td><td>{r["display"]} <span class="mono">{r["code"]}</span></td>'
+                             f'<td>{se}</td><td>{r["bundled"]}</td><td><span class="pill warn">{r["status"]}</span></td></tr>')
+                html('<table class="tbl"><thead><tr><th>Kind</th><th>Diagnosis</th><th>Same event</th>'
+                     f'<th>Bundled</th><th>Status</th></tr></thead><tbody>{rows}</tbody></table>')
 
 
 def workspace(c):
