@@ -33,6 +33,13 @@ st.set_page_config(page_title="ACC Claim Console", page_icon="🩺", layout="wid
 EMP_STATUSES = ["Not employed in NZ", "Retired", "Employee", "Self-employed", "Owner employee", "Other"]
 SCENES = ["Home", "Work", "Road", "Sports facility", "School", "Other"]
 EXERTION = ["", "Sedentary", "Light", "Medium", "Heavy", "Very heavy"]
+SPORTS = ["Aerobics", "Athletics", "Badminton", "Basketball", "Boating", "Bowls", "Boxing",
+          "Bungee Jumping", "Cricket", "Cycling", "Dance", "Diving", "Equestrian", "Fishing",
+          "Football (Soccer)", "Golf", "Gymnastics", "Hockey", "Horse Riding", "Martial Arts",
+          "Motorsport", "Mountain Biking", "Netball", "Rowing", "Rugby League", "Rugby Union",
+          "Running", "Sailing", "Skiing", "Snowboarding", "Softball", "Squash", "Surfing",
+          "Swimming", "Table Tennis", "Tennis", "Touch", "Tramping", "Trampoline", "Triathlon",
+          "Volleyball", "Walking", "Water Polo", "Weightlifting", "Wrestling", "Other"]
 
 # --------------------------------------------------------------------------
 # Health New Zealand | Te Whatu Ora design system (scoped, injected once).
@@ -196,7 +203,8 @@ def new_claim():
         "patient": ctx["patient"],
         "employment": {"status": "Not employed in NZ", "occupation": "Unemployed", "employer": ""},
         "accident": {"adate": None, "atime": "08:34", "location": "Christchurch City",
-                     "scene": "Home", "workplace": "No", "vehicle": "No", "sporting": "No", "cause": ""},
+                     "scene": "Home", "workplace": "No", "vehicle": "No", "sporting": "No",
+                     "sport": "", "cause": ""},
         "consent": {"given": False, "at": None},
         "diagnoses": [],
         "flags": {"gradual": "No", "treatment": "No", "admitted": "No", "home": "No"},
@@ -218,6 +226,8 @@ def validate(c):
         errs.append("Accident date is required.")
     if not a["cause"].strip():
         errs.append("Cause of injury is required.")
+    if a.get("sporting") == "Yes" and not a.get("sport"):
+        errs.append("Select the sport for the sporting injury.")
     if not c["consent"]["given"]:
         errs.append("Patient consent (all three authorisations) must be recorded.")
     if len(c["diagnoses"]) == 0:
@@ -319,7 +329,7 @@ def _base(ref):
         "patient": {"pas_id": "", "given": "", "family": "", "dob": "", "nhi": "", "mobile": "", "email": "", "address": ""},
         "employment": {"status": "Not employed in NZ", "occupation": "Unemployed", "employer": ""},
         "accident": {"adate": None, "atime": "", "location": "", "scene": "Home",
-                     "workplace": "No", "vehicle": "No", "sporting": "No", "cause": ""},
+                     "workplace": "No", "vehicle": "No", "sporting": "No", "sport": "", "cause": ""},
         "consent": {"given": False, "at": None},
         "diagnoses": [],
         "flags": {"gradual": "No", "treatment": "No", "admitted": "No", "home": "No"},
@@ -628,6 +638,15 @@ def admin_panel(c):
         a["workplace"] = b2.radio("Workplace?", yn, horizontal=True, index=yn.index(a["workplace"]))
         a["vehicle"] = b3.radio("Vehicle on road?", yn, horizontal=True, index=yn.index(a["vehicle"]))
         a["sporting"] = b4.radio("Sporting?", yn, horizontal=True, index=yn.index(a["sporting"]))
+        # Sport dropdown appears only when "Sporting injury?" is Yes (mirrors the ACC45).
+        if a["sporting"] == "Yes":
+            cur = a.get("sport", "")
+            opts = [""] + SPORTS
+            a["sport"] = st.selectbox("Sport *", opts,
+                                      index=opts.index(cur) if cur in opts else 0,
+                                      format_func=lambda s: s or "— select sport —")
+        else:
+            a["sport"] = ""
         a["cause"] = st.text_area("Cause of injury (mechanism) *", value=a["cause"], height=68,
                                   placeholder="e.g. walking to the kitchen – tripped over own feet – fell to ground")
 
@@ -787,7 +806,7 @@ def render_summary(c):
             ("Scene", a["scene"]),
             ("Workplace accident", a["workplace"]),
             ("Moving vehicle on road", a["vehicle"]),
-            ("Sporting injury", a["sporting"]),
+            ("Sporting injury", a["sporting"] + (f' — {a["sport"]}' if a["sporting"] == "Yes" and a.get("sport") else "")),
         ]))
         html(wide("Cause of injury", a["cause"]))
 

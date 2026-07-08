@@ -110,7 +110,8 @@ and in rules).
 
 ### Accident (Part B)
 `adate` (date\|null), `atime` (string), `location`, `scene` (enum),
-`workplace` (`No`\|`Yes`), `vehicle` (`No`\|`Yes`), `sporting` (`No`\|`Yes`), `cause` (text).
+`workplace` (`No`\|`Yes`), `vehicle` (`No`\|`Yes`), `sporting` (`No`\|`Yes`),
+`sport` (enum, **conditional** — set only when `sporting = Yes`), `cause` (text).
 
 ### Consent (Part E patient)
 `given` (bool), `at` (timestamp string\|null). `given=true` means **all three**
@@ -142,6 +143,7 @@ optional `source_request` (id of the ChangeRequest that created it).
 
 - **Employment status:** `Not employed in NZ`, `Retired`, `Employee`, `Self-employed`, `Owner employee`, `Other`.
 - **Accident scene:** `Home`, `Work`, `Road`, `Sports facility`, `School`, `Other`.
+- **Sport** (shown only when `sporting = Yes`): Aerobics, Athletics, Badminton, Basketball, Boating, Bowls, Boxing, Bungee Jumping, Cricket, Cycling, Dance, Diving, Equestrian, Fishing, Football (Soccer), Golf, Gymnastics, Hockey, Horse Riding, Martial Arts, Motorsport, Mountain Biking, Netball, Rowing, Rugby League, Rugby Union, Running, Sailing, Skiing, Snowboarding, Softball, Squash, Surfing, Swimming, Table Tennis, Tennis, Touch, Tramping, Trampoline, Triathlon, Volleyball, Walking, Water Polo, Weightlifting, Wrestling, Other.
 - **Work exertion:** `""` (unset), `Sedentary`, `Light`, `Medium`, `Heavy`, `Very heavy`.
 - **Work capacity state:** `""` (unset), `Fully fit`, `Fit for selected work`, `Fully unfit`.
 - **Certificate type:** `ACC45 initial (≤14 days)`, `ACC18 (beyond 14 days)`.
@@ -278,6 +280,7 @@ Four Yes/No controls. Contextual banners when set to `Yes`:
 2. `Date of birth is required.` — if `dob` empty.
 3. `Accident date is required.` — if `accident.adate` empty.
 4. `Cause of injury is required.` — if `accident.cause` blank.
+4a. `Select the sport for the sporting injury.` — if `accident.sporting = Yes` and no `sport` chosen.
 5. `Patient consent (all three authorisations) must be recorded.` — if `consent.given` false.
 6. `At least one injury diagnosis is needed.` — if no diagnoses.
 7. `At least one ACC-eligible diagnosis is required to lodge.` — if diagnoses exist but none has `acc=true`. **(the hard eligibility gate)**
@@ -325,7 +328,8 @@ Cards, in order: **Encounter context** (chips: encounter, source system, facilit
 provider, ACC45 no. + allocation source; note "identity inherited — verify, don't
 re-key"); **Patient · Part A**; **Employment · Part B** (occupation disabled when "Not
 employed in NZ"; employer disabled unless "Employee"); **Patient consent · Part E**;
-**Accident · Part B** (3-col date/time/location; scene + three Yes/No; cause textarea).
+**Accident · Part B** (3-col date/time/location; scene + three Yes/No; a **Sport** dropdown
+that appears only when *Sporting injury? = Yes* — required in that case; cause textarea).
 
 ### 9.4 Clinician tab
 Cards: **Context** (chip strip of patient/accident/scene/consent + cause); **Injury
