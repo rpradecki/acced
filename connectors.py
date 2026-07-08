@@ -22,9 +22,10 @@ from datetime import datetime
 # Which connectors are stubbed vs live. Flip to "live" as real clients are wired.
 CONNECTOR_MODE = {
     "auth": "stub",          # My Health Account Workforce (OIDC)
-    "nhi": "stub",           # NHI FHIR API (Hira)
-    "hpi": "stub",           # HPI FHIR API (Hira)
+    "nhi": "stub",           # NHI FHIR API (Health NZ Digital Services Hub)
+    "hpi": "stub",           # HPI FHIR API (Health NZ Digital Services Hub)
     "pms": "stub",           # PMS/PAS launch context (SMART on FHIR)
+    "sdhr": "stub",          # Shared Digital Health Record (national shared record; replaces Hira)
     "terminology": "stub",   # SNOMED CT NZ Edition terminology server (NZHTS/Ontoserver)
     "acc": "stub",           # ACC eLodgement + Claim Number Allocation API
     "audit": "stub",         # immutable audit log
@@ -73,8 +74,9 @@ class NHIConnector:
     """
     National Health Index: validate an NHI and fetch verified demographics.
 
-    REAL SERVICE : **NHI FHIR API** via the Hira Marketplace Portal (Patient resource,
-                   NZ Base FHIR IG). Master source of patient identity in NZ.
+    REAL SERVICE : **NHI FHIR API** via the Health NZ **Digital Services Hub** (Patient
+                   resource, NZ Base FHIR IG). Master source of patient identity in NZ.
+                   (The Hira programme is superseded; NHI remains a national identity API.)
     STANDARDS    : HISO 10046 (NHI); NZ Base FHIR IG Patient profile. JIT retrieval only.
     PRODUCTION   : replace format check with the real HISO 10046 check-character
                    validation, and demographics with an authenticated NHI API lookup;
@@ -105,7 +107,8 @@ class HPIConnector:
     """
     Health Provider Index: practitioner, organisation and facility identity.
 
-    REAL SERVICE : **HPI FHIR API** via Hira (Practitioner/Organization/Location).
+    REAL SERVICE : **HPI FHIR API** via the Health NZ Digital Services Hub
+                   (Practitioner/Organization/Location).
     STANDARDS    : HISO 10005/10006 (HPI); NZ Base FHIR IG. 170k+ practitioners.
     PRODUCTION   : resolve the signed-in workforce identity → HPI Practitioner (CPN),
                    confirm registration/scope of practice, and populate the provider
@@ -154,6 +157,34 @@ class PMSConnector:
                 "email": "", "address": "14 Rewi Street, Christchurch 8022",
             },
         }
+
+
+# ---------------------------------------------------------------------------
+# 4b. SDHR — Shared Digital Health Record (national shared record)
+# ---------------------------------------------------------------------------
+class SDHRConnector:
+    """
+    National shared health record — read a patient's core health information and
+    contribute clinical events (e.g. this encounter's diagnoses) to the shared record.
+
+    REAL SERVICE : **Shared Digital Health Record (SDHR)** — Health NZ's national shared
+                   record programme (supersedes the earlier Hira programme). Copies core
+                   health info from the practice PMS into a central store, subject to the
+                   patient's consent and existing access/privacy controls.
+    STANDARDS    : **NZ SDHR FHIR API / IG** (fhir-ig.digital.health.nz/sdhr); NZ Base
+                   FHIR IG. (Programme phasing in; general API availability is staged.)
+    PRODUCTION   : with consent, read patient core health info to prefill/contextualise,
+                   and contribute the lodged encounter/diagnoses to the shared record via
+                   the SDHR API. Honour SDHR consent and access controls.
+    STATUS       : STUB — no read/contribute; returns empty.
+    """
+    STUB = True
+
+    def get_core_health_info(self, nhi: str) -> dict | None:
+        return None  # not available in the mockup
+
+    def contribute(self, claim: dict) -> bool:
+        return False  # not contributed in the mockup
 
 
 # ---------------------------------------------------------------------------
@@ -306,6 +337,7 @@ auth = AuthConnector()
 nhi = NHIConnector()
 hpi = HPIConnector()
 pms = PMSConnector()
+sdhr = SDHRConnector()
 terminology = TerminologyConnector()
 acc = ACCConnector()
 audit = AuditConnector()

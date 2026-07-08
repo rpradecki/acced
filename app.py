@@ -15,7 +15,9 @@ use a scoped design system with the Tailwind palette/spacing instead).
 
 import random
 import string
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+
+EDIT_WINDOW_DAYS = 14  # ACC45 referrals are retained for update/revision/repair for 14 days
 
 import streamlit as st
 
@@ -154,6 +156,14 @@ CSS = """
   .dt{color:var(--slate-500); font-size:11.5px; min-width:132px; font-weight:600; flex:none;}
   .dd{color:var(--navy); font-size:12.5px; font-weight:600;}
   @media(max-width:700px){.dlgrid{grid-template-columns:1fr;}}
+
+  /* dashboard summary metric cards */
+  .metricrow{display:flex; gap:8px; flex-wrap:wrap; margin:2px 0 6px;}
+  .metric{flex:1 1 120px; border:1px solid var(--slate-200); border-radius:10px; padding:8px 12px; background:#fff;}
+  .metric .mv{font-size:22px; font-weight:700; color:var(--navy); line-height:1.05;}
+  .metric .ml{font-size:10px; color:var(--slate-500); text-transform:uppercase; letter-spacing:.04em; font-weight:700; margin-top:3px;}
+  .metric.warn{background:var(--amber-50); border-color:var(--amber-200);} .metric.warn .mv{color:var(--amber-700);}
+  .metric.err{background:var(--red-50); border-color:var(--red-200);} .metric.err .mv{color:var(--red-700);}
 </style>
 """
 
@@ -180,6 +190,8 @@ def new_claim():
         "number_source": "acc_allocation_api",
         "status": "draft",
         "decision": None,
+        "created": date.today(),
+        "created_by": cx.auth.current_user(st.session_state.get("role", "prescriber"))["name"],
         "encounter": ctx["encounter"],
         "patient": ctx["patient"],
         "employment": {"status": "Not employed in NZ", "occupation": "Unemployed", "employer": ""},
@@ -248,6 +260,31 @@ def status_pill(status):
     return f'<span class="{cls}">{lab}</span>'
 
 
+# ----- 14-day edit/revision/repair window --------------------------------
+def days_left(c):
+    """Days remaining in the 14-day update/revision/repair window."""
+    created = c.get("created") or date.today()
+    return EDIT_WINDOW_DAYS - (date.today() - created).days
+
+
+def is_expired(c):
+    return days_left(c) <= 0
+
+
+def window_pill(c):
+    d = days_left(c)
+    if d <= 0:
+        return '<span class="pill err">Edit window expired</span>'
+    cls = "err" if d <= 3 else ("warn" if d <= 7 else "blue")
+    unit = "day" if d == 1 else "days"
+    return f'<span class="pill {cls}">{d} {unit} left to edit</span>'
+
+
+def needs_repair(c):
+    """Referral the user should act on: unfinished draft, or an ACC decision to address."""
+    return c["status"] in ("draft", "held", "declined")
+
+
 def sec(title):
     st.markdown(f'<div class="sec">{title}</div>', unsafe_allow_html=True)
 
@@ -275,6 +312,7 @@ def _base(ref):
     return {
         "id": uid(), "reference": ref, "number_source": "acc_allocation_api",
         "status": "draft", "decision": None,
+        "created": date.today(), "created_by": "Dr A. Rangi",
         "encounter": {"external_id": "ENC-" + str(random.randint(100000, 999999)), "source": "pms_context",
                       "facility": "Riverside Medical Centre", "provider": "Dr A. Rangi (GP)",
                       "klass": "Outpatient / GP consult", "source_system": "Medtech PMS"},
@@ -309,7 +347,7 @@ def _dx(code, disp, side, acc, status="draft", primary=False):
 def seed_claims():
     # 1) In-progress DRAFT — consent + one diagnosis captured, but not yet certified/declared (mid-edit).
     c1 = _merge(_base("IO16452"), {
-        "status": "draft",
+        "status": "draft", "created": date.today() - timedelta(days=3),
         "patient": {"pas_id": "PAS-40021", "given": "Aroha", "family": "Ngata", "dob": "1991-06-02",
                     "nhi": "KLP2286", "mobile": "021 448 1190", "address": "9 Tui Lane, Christchurch 8014"},
         "employment": {"status": "Employee", "occupation": "Warehouse assistant", "employer": "Southern Distribution Ltd"},
@@ -320,7 +358,7 @@ def seed_claims():
     })
     # 2) READY to lodge — fully valid; open the Review tab to lodge it.
     c2 = _merge(_base("IO16454"), {
-        "status": "ready",
+        "status": "ready", "created": date.today() - timedelta(days=1),
         "patient": {"pas_id": "PAS-77310", "given": "David", "family": "Thorne", "dob": "1974-11-19",
                     "nhi": "MTR9043", "mobile": "027 220 6655", "address": "22 Kowhai Road, Rangiora 7400"},
         "employment": {"status": "Self-employed", "occupation": "Builder", "employer": ""},
@@ -335,7 +373,7 @@ def seed_claims():
     })
     # 3) LODGED / ACCEPTED — grid read-only; edit via post-lodgement diagnosis change in the Review tab.
     c3 = _merge(_base("IO16456"), {
-        "status": "accepted", "decision": "Accepted",
+        "status": "accepted", "decision": "Accepted", "created": date.today() - timedelta(days=9),
         "patient": {"pas_id": "PAS-51188", "given": "Sina", "family": "Faleolo", "dob": "1998-02-27",
                     "nhi": "NBW7712", "mobile": "022 909 3312", "address": "5 Harakeke Street, Christchurch 8025"},
         "employment": {"status": "Employee", "occupation": "Chef", "employer": "Harbourview Restaurant"},
@@ -348,7 +386,31 @@ def seed_claims():
                      "cert_type": "ACC18 (beyond 14 days)", "valid_from": date(2026, 6, 30), "valid_to": date(2026, 7, 28)},
         "declaration": {"made": True, "date": "2026-06-30", "by": "Dr A. Rangi", "provider_no": "HP-44921"},
     })
-    return [c1, c2, c3]
+    # 4) DECLINED — needs repair and the edit window is closing (2 days left).
+    c4 = _merge(_base("IO16450"), {
+        "status": "declined", "decision": "Declined", "created": date.today() - timedelta(days=12),
+        "patient": {"pas_id": "PAS-33902", "given": "Tomasi", "family": "Vaka", "dob": "1988-09-14",
+                    "nhi": "PLR5521", "mobile": "021 700 4412", "address": "88 Rata Street, Christchurch 8011"},
+        "employment": {"status": "Employee", "occupation": "Courier driver", "employer": "FastParcel NZ"},
+        "accident": {"adate": date.today() - timedelta(days=12), "atime": "07:50", "location": "Christchurch City",
+                     "scene": "Road", "vehicle": "Yes", "cause": "rear-ended at traffic lights – neck pain"},
+        "consent": {"given": True, "at": "(recorded)"},
+        "diagnoses": [_dx("44465007", "Sprain of neck", "N/A", True, "declined", True)],
+        "declaration": {"made": True, "date": "(signed)", "by": "Dr A. Rangi", "provider_no": "HP-44921"},
+    })
+    # 5) EXPIRED — outside the 14-day window; read-only / archived (16 days old).
+    c5 = _merge(_base("IO16445"), {
+        "status": "accepted", "decision": "Accepted", "created": date.today() - timedelta(days=16),
+        "patient": {"pas_id": "PAS-21847", "given": "Grace", "family": "Wilson", "dob": "1962-01-30",
+                    "nhi": "QDF3390", "mobile": "027 118 2244", "address": "3 Miro Place, Christchurch 8042"},
+        "employment": {"status": "Retired", "occupation": "", "employer": ""},
+        "accident": {"adate": date.today() - timedelta(days=16), "atime": "11:15", "location": "Christchurch City",
+                     "scene": "Home", "cause": "tripped on a rug – landed on right wrist"},
+        "consent": {"given": True, "at": "(recorded)"},
+        "diagnoses": [_dx("20946005", "Fracture of distal radius (wrist)", "Right", True, "accepted", True)],
+        "declaration": {"made": True, "date": "(signed)", "by": "Dr A. Rangi", "provider_no": "HP-44921"},
+    })
+    return [c2, c1, c4, c3, c5]
 
 
 # --------------------------------------------------------------------------
@@ -428,42 +490,77 @@ def change_request_dialog(c):
 # --------------------------------------------------------------------------
 # panels
 # --------------------------------------------------------------------------
+def _submission_row(c, read_only=False):
+    cols = st.columns([1.05, 1.7, 1.35, 1.15, 1.6, 0.75])
+    cols[0].markdown(f'<span class="mono" style="font-size:12.5px;color:var(--slate-700)">{c["reference"]}</span>',
+                     unsafe_allow_html=True)
+    repair = ' <span class="pill warn">needs action</span>' if (needs_repair(c) and not read_only) else ""
+    cols[1].markdown(f'{c["patient"]["given"]} {c["patient"]["family"]}{repair}', unsafe_allow_html=True)
+    cols[2].markdown(status_pill(c["status"]), unsafe_allow_html=True)
+    cols[3].write(str(c["accident"]["adate"] or "—"))
+    cols[4].markdown(window_pill(c), unsafe_allow_html=True)
+    if cols[5].button("Open" if not read_only else "View", key="open_" + c["id"]):
+        st.session_state.active = c["id"]
+        st.session_state.tab = "admin"
+        st.rerun()
+
+
 def dashboard():
+    user = cx.auth.current_user(st.session_state.get("role", "prescriber"))
     html('<div class="apphdr">'
          '<span class="brand">Health New Zealand <span style="font-weight:400;opacity:.75">| Te Whatu Ora</span></span>'
          '<span class="sub">ACC Claim Console · research mockup</span><span class="grow"></span>'
-         f'<span class="sub">{len(st.session_state.claims)} claim(s)</span></div>')
-    with st.container(border=True):
-        html('<div class="bnr info" style="margin:4px 6px">➕ <b>New claim launches in encounter context.</b> '
-             'In production this opens from the PAS/PMS against a live visit; here it simulates a Medtech PMS '
-             'encounter for Margaret Ellery and allocates a fresh ACC45 number.</div>')
-        cc = st.columns([2, 5])
-        if cc[0].button("➕ New ACC45 claim (from PMS encounter)", type="primary", use_container_width=True):
-            c = new_claim()
-            st.session_state.claims.append(c)
-            st.session_state.active = c["id"]
-            st.rerun()
+         f'<span class="sub">{user["name"]} · {user["role_label"]}</span></div>')
 
-    if not st.session_state.claims:
-        st.caption("No claims yet — create one above.")
-        return
+    # per-user working set
+    mine = [c for c in st.session_state.claims if c.get("created_by") == user["name"]]
+    active = sorted([c for c in mine if not is_expired(c)], key=days_left)
+    expired = sorted([c for c in mine if is_expired(c)], key=lambda c: c.get("created") or date.today())
+
+    st.markdown("#### My ACC submissions")
+    st.caption("ACC45 referrals are kept here for **14 days** for update, revision or repair. "
+               "After that they drop off your active list (read-only below).")
+
+    # summary metrics over the active working set
+    drafts = sum(1 for c in active if c["status"] == "draft")
+    ready = sum(1 for c in active if c["status"] == "ready")
+    awaiting = sum(1 for c in active if c["status"] == "lodged")
+    repair = sum(1 for c in active if c["status"] in ("held", "declined"))
+    expiring = sum(1 for c in active if 0 < days_left(c) <= 3)
+    html('<div class="metricrow">'
+         f'<div class="metric"><div class="mv">{len(active)}</div><div class="ml">Active</div></div>'
+         f'<div class="metric"><div class="mv">{drafts}</div><div class="ml">Drafts to finish</div></div>'
+         f'<div class="metric"><div class="mv">{ready}</div><div class="ml">Ready to lodge</div></div>'
+         f'<div class="metric"><div class="mv">{awaiting}</div><div class="ml">Awaiting ACC</div></div>'
+         f'<div class="metric{" err" if repair else ""}"><div class="mv">{repair}</div><div class="ml">Needs repair</div></div>'
+         f'<div class="metric{" warn" if expiring else ""}"><div class="mv">{expiring}</div><div class="ml">Expiring ≤3 days</div></div>'
+         '</div>')
+
+    if st.button("➕ New ACC45 claim (from PMS encounter)", type="primary"):
+        c = new_claim()
+        st.session_state.claims.append(c)
+        st.session_state.active = c["id"]
+        st.session_state.tab = "admin"
+        st.rerun()
+
+    # active submissions (inside the 14-day window), most urgent first
     with st.container(border=True):
-        sec("Claims")
-        st.caption("Sample claims are pre-loaded — click **Open** to edit. Try IO16452 (in progress), "
-                   "IO16454 (ready to lodge), or IO16456 (lodged — edit via post-lodgement change).")
-        h = st.columns([1.1, 1.7, 1.5, 1.4, 1.2, 0.8])
-        for col, t in zip(h, ["ACC45 NO.", "PATIENT", "ENCOUNTER", "ACCIDENT DATE", "STATUS", ""]):
-            col.markdown(f'<div class="sec" style="margin:0">{t}</div>', unsafe_allow_html=True)
-        for c in st.session_state.claims:
-            cols = st.columns([1.1, 1.7, 1.5, 1.4, 1.2, 0.8])
-            cols[0].markdown(f'<span class="mono" style="font-size:12.5px;color:var(--slate-700)">{c["reference"]}</span>', unsafe_allow_html=True)
-            cols[1].write(f'{c["patient"]["given"]} {c["patient"]["family"]}')
-            cols[2].markdown(f'<span class="mono">{c["encounter"]["external_id"]}</span>', unsafe_allow_html=True)
-            cols[3].write(str(c["accident"]["adate"] or "—"))
-            cols[4].markdown(status_pill(c["status"]), unsafe_allow_html=True)
-            if cols[5].button("Open", key="open_" + c["id"]):
-                st.session_state.active = c["id"]
-                st.rerun()
+        sec("Active submissions · within 14-day edit window")
+        if not active:
+            st.caption(f"No active submissions for {user['name']}.")
+        else:
+            h = st.columns([1.05, 1.7, 1.35, 1.15, 1.6, 0.75])
+            for col, t in zip(h, ["ACC45 NO.", "PATIENT", "STATUS", "ACCIDENT", "EDIT WINDOW", ""]):
+                col.markdown(f'<div class="sec" style="margin:0">{t}</div>', unsafe_allow_html=True)
+            for c in active:
+                _submission_row(c)
+
+    # expired / archived — read-only
+    if expired:
+        with st.expander(f"Expired — read-only (past 14-day window) · {len(expired)}"):
+            st.caption("The 14-day update/revision/repair window has closed. These are shown for reference only.")
+            for c in expired:
+                _submission_row(c, read_only=True)
 
 
 def admin_panel(c):
@@ -538,7 +635,7 @@ def admin_panel(c):
 def clinician_panel(c):
     role = st.session_state.role
     is_prescriber = cx.auth.can_sign_part_e(role)  # authorisation via auth connector (stub)
-    locked = c["status"] not in ("draft", "ready")
+    locked = c["status"] not in ("draft", "ready") or is_expired(c)
     eligible = [d for d in c["diagnoses"] if d["acc"]]
 
     with st.container(border=True):
@@ -744,8 +841,9 @@ def review_panel(c):
             html('<div class="bnr warn"><b>Warnings (non-blocking):</b><ul>'
                  + "".join(f"<li>{w}</li>" for w in warns) + "</ul></div>")
         if c["status"] in ("draft", "ready"):
+            expired = is_expired(c)
             lc = st.columns([2, 3])
-            if lc[0].button("Complete & lodge ACC45", type="primary", disabled=not can, use_container_width=True):
+            if lc[0].button("Complete & lodge ACC45", type="primary", disabled=(not can or expired), use_container_width=True):
                 for d in c["diagnoses"]:
                     d["status"] = "lodged"
                 c["status"] = "lodged"
@@ -753,7 +851,8 @@ def review_panel(c):
                 cx.audit.record(st.session_state.role, "lodge_acc45", c["reference"])
                 cx.notification.send_decision_sms(c["patient"]["mobile"], c["reference"], c["decision"])
                 st.rerun()
-            lc[1].caption("Validation passed." if can else "Complete is disabled until validation passes.")
+            lc[1].caption("Edit window expired — cannot lodge." if expired
+                          else ("Validation passed." if can else "Complete is disabled until validation passes."))
 
     # Full ACC45 summary — directly under Lodgement readiness, for every claim state.
     render_summary(c)
@@ -797,11 +896,14 @@ def workspace(c):
         st.session_state.active = None
         st.rerun()
     html('<div class="apphdr"><span class="brand" style="font-size:13px">Health NZ</span>'
-         f'<span class="ref">{c["reference"]}</span>{status_pill(c["status"])}'
+         f'<span class="ref">{c["reference"]}</span>{status_pill(c["status"])} {window_pill(c)}'
          f'<span class="sub">{c["patient"]["given"]} {c["patient"]["family"]} · '
          f'encounter {c["encounter"]["external_id"]} · accident {c["accident"]["adate"] or "—"}</span>'
          '<span class="grow"></span>'
          f'<span class="sub">{"✓ ready" if can else str(len(errs))+" to fix"}</span></div>')
+    if is_expired(c):
+        html('<div class="bnr err">🔒 <b>Read-only — the 14-day update/revision/repair window has closed.</b> '
+             'This referral can no longer be edited or lodged. (Ongoing certification would continue via a new ACC18.)</div>')
 
     # Custom tab bar (buttons) — reliable & readable across Streamlit versions.
     tabs = [("admin", "📋  Administrative"), ("clin", "🩺  Clinician"),

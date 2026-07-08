@@ -28,20 +28,28 @@ limited scope); scope-of-practice checks for who may lodge which claim types.
 
 ## B. Patient identity & demographics (P0) — *connector: `nhi`*
 **Gap.** NHI is a regex format check; no lookup; demographics are typed/seeded.
-**Target.** **NHI FHIR API** (Hira Marketplace Portal), master source of patient identity.
-Real **HISO 10046** check-character validation; JIT demographic retrieval; reconcile the
-PMS patient to a verified NHI. Never cache beyond the consented purpose.
+**Target.** **NHI FHIR API** (Health NZ **Digital Services Hub**), master source of patient
+identity. Real **HISO 10046** check-character validation; JIT demographic retrieval;
+reconcile the PMS patient to a verified NHI. Never cache beyond the consented purpose.
 
 ## C. Provider & facility identity (P1) — *connector: `hpi`*
 **Gap.** Provider number is free text defaulting to a sample; no verification.
-**Target.** **HPI FHIR API** (Hira) — Practitioner (CPN), Organisation, Facility. Resolve
-the signed-in identity to HPI, confirm registration status/scope, and populate the
-provider number and facility from HPI (HISO 10005/10006).
+**Target.** **HPI FHIR API** (Digital Services Hub) — Practitioner (CPN), Organisation,
+Facility. Resolve the signed-in identity to HPI, confirm registration status/scope, and
+populate the provider number and facility from HPI (HISO 10005/10006).
 
 ## D. Encounter / launch context (P1) — *connector: `pms`*
 **Gap.** The encounter and patient are simulated on "New claim".
 **Target.** **SMART on FHIR EHR launch** from the PMS/PAS (Medtech, Indici, Profile, …);
 inherit the FHIR Encounter + Patient; no re-keying. Support standalone launch as a fallback.
+
+## D2. Shared health record (P1) — *connector: `sdhr`*
+**Gap.** No integration with the national shared record.
+**Target.** **Shared Digital Health Record (SDHR)** — Health NZ's national shared record
+(supersedes the earlier **Hira** programme). With patient consent, read core health info
+to contextualise the claim and contribute the lodged encounter/diagnoses to the shared
+record via the **SDHR FHIR API** (fhir-ig.digital.health.nz/sdhr). Honour SDHR consent and
+access controls. (Programme phasing in; general API availability is staged.)
 
 ## E. Clinical terminology (P1) — *connector: `terminology`*
 **Gap.** 15-concept in-memory sample of the ACC claim reference set; no live validation.
@@ -65,6 +73,10 @@ opaque string (format is changing).
 sovereignty), encryption at rest, backups/retention, concurrency-safe multi-user access,
 optimistic locking, and **claim versioning/amendment history**. Consider Māori Data
 Sovereignty (Te Mana Raraunga) principles.
+**Retention policy.** The app keeps ACC45 referrals editable for a **14-day
+update/revision/repair window** (`EDIT_WINDOW_DAYS`), after which they become read-only
+and drop off the user's active dashboard. The datastore must enforce this policy (and any
+longer statutory retention for the record itself) rather than relying on in-session state.
 
 ## H. Audit trail (P0) — *connector: `audit`*
 **Gap.** Audit is an in-memory list lost on restart.
@@ -129,9 +141,10 @@ review, accessibility audit, clinical validation, and provider UAT.
 | Connector (`connectors.py`) | Real HNZ service / standard | Gaps |
 |---|---|---|
 | `auth` | My Health Account Workforce (OIDC) | A |
-| `nhi` | NHI FHIR API (Hira); HISO 10046 | B |
-| `hpi` | HPI FHIR API (Hira); HISO 10005/6 | C |
+| `nhi` | NHI FHIR API (Digital Services Hub); HISO 10046 | B |
+| `hpi` | HPI FHIR API (Digital Services Hub); HISO 10005/6 | C |
 | `pms` | PMS/PAS via SMART on FHIR launch | D |
+| `sdhr` | Shared Digital Health Record (SDHR) FHIR API — replaces Hira | D2 |
 | `terminology` | SNOMED CT NZ Edition (NZHTS/Ontoserver) | E |
 | `acc` | ACC Claim Number Allocation API + eLodgement | F |
 | `persistence` | NZ-region datastore; data sovereignty | G |
@@ -147,7 +160,9 @@ patient/claim data flows. The stubs make each of these an explicit, isolated uni
 
 ## Sources
 - [Information for IT vendors and developers — Health NZ (NHI/HPI APIs)](https://www.tewhatuora.govt.nz/health-services-and-programmes/health-identity/information-for-it-vendors-and-developers)
-- [Hira Marketplace Portal — NHI FHIR API](https://www.tewhatuora.govt.nz/health-services-and-programmes/digital-health/digital-services-hub/explore-apis-digital-services/national-health-index-fhir-api)
-- [Hira Marketplace Portal — HPI FHIR API](https://www.tewhatuora.govt.nz/health-services-and-programmes/digital-health/digital-services-hub/explore-apis-digital-services/health-provider-index-api)
+- [Digital Services Hub — NHI FHIR API](https://www.tewhatuora.govt.nz/health-services-and-programmes/digital-health/digital-services-hub/explore-apis-digital-services/national-health-index-fhir-api)
+- [Digital Services Hub — HPI FHIR API](https://www.tewhatuora.govt.nz/health-services-and-programmes/digital-health/digital-services-hub/explore-apis-digital-services/health-provider-index-api)
+- [Shared Digital Health Record (SDHR) — Health NZ](https://www.tewhatuora.govt.nz/health-services-and-programmes/digital-health/shared-digital-health-record)
+- [NZ SDHR FHIR API / Implementation Guide](https://fhir-ig.digital.health.nz/sdhr/index.html)
 - [New Zealand FHIR Registry / NZ Base IG — Health NZ](https://health.govt.nz/our-work/digital-health/digital-health-sector-architecture-standards-and-governance/health-information-standards-0/new-zealand-fhir-registry)
 - [My Health Account Workforce brand & integration (PDF) — Te Whatu Ora](https://www.tewhatuora.govt.nz/assets/Health-services-and-programmes/Digital-health/Digital-health-identity/Brand-guidelines-My-Health-Account-Workforce-V3.pdf)

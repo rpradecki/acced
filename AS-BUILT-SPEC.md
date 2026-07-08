@@ -82,6 +82,8 @@ and in rules).
 | `id` | string | unique |
 | `reference` | string | allocated ACC45 number, e.g. `IO16457` (opaque string) |
 | `number_source` | enum | `acc_allocation_api` \| `preallocated_block` |
+| `created` | date | claim creation date — anchors the 14-day edit window |
+| `created_by` | string | owning user (dashboard is scoped to this) |
 | `status` | enum | `draft` \| `ready` \| `lodged` \| `accepted` \| `held` \| `declined` |
 | `decision` | string\|null | `Received` \| `Accepted` \| `Held` \| `Declined` \| null |
 | `encounter` | Encounter | see below |
@@ -296,12 +298,22 @@ server-side at lodge so a stale client cannot bypass the gate.
 
 ## 9. Screen specifications
 
-### 9.1 Dashboard
-- Brand header bar: "Health New Zealand | Te Whatu Ora" + "ACC Claim Console · research mockup" + claim count.
-- Info banner explaining new claims launch in encounter context.
+### 9.1 Dashboard — "My ACC submissions" (per-user, 14-day window)
+The dashboard is the individual user's submission workspace, scoped to `created_by ==
+current user`, and organised around the **14-day edit/revision/repair window**
+(`EDIT_WINDOW_DAYS = 14`).
+
+- Brand header bar with the signed-in user + role.
+- Heading **"My ACC submissions"** and a note that referrals are kept 14 days for update/revision/repair, then drop off the active list.
+- **Summary metric strip:** Active · Drafts to finish · Ready to lodge · Awaiting ACC · Needs repair (amber/red when >0) · Expiring ≤3 days (amber when >0).
 - Primary button **"➕ New ACC45 claim (from PMS encounter)"**.
-- Caption pointing to the seeded samples.
-- Claims table: columns `ACC45 no.` (mono), `Patient`, `Encounter` (mono), `Accident date`, `Status` (pill), and an **Open** button per row.
+- **Active submissions** (`days_left > 0`), **sorted most-urgent-first** (ascending days left). Columns: `ACC45 no.` (mono), `Patient` (+ "needs action" pill for draft/held/declined), `Status` (pill), `Accident`, **`Edit window`** (see below), and **Open**.
+- **Expired** (`days_left ≤ 0`) in a collapsed, read-only expander ("past 14-day window"); rows open in **View** (read-only) mode.
+
+**Edit-window rules.**
+- `days_left(claim) = 14 − (today − created).days`; `is_expired = days_left ≤ 0`.
+- **Edit-window pill:** neutral/blue normally; **amber ≤ 7 days**; **red ≤ 3 days**; "Edit window expired" at ≤ 0.
+- When expired, the claim is **read-only**: the workspace shows a read-only banner, the clinician diagnosis grid is locked, and **lodging is disabled**. (Ongoing certification would continue via a new ACC18, out of this window.)
 
 ### 9.2 Workspace header + tab nav
 - "← Home" button (clears `active_claim_id`).
@@ -401,6 +413,7 @@ A replicated build should pass all of these (mirrors the reference test suite):
 9. **Role gate:** switching to `limited` disables the Part E declaration with an explanatory banner.
 10. **Review summary:** the Review tab shows the full ACC45 summary (all Part A–E sections with entered values) directly under Lodgement readiness, in every claim state.
 11. **Layout:** the app header and controls are not obscured by the top chrome.
+12. **14-day window:** the dashboard shows a per-user working set; a referral ≤3 days from expiry shows a red edit-window pill and counts in "Expiring ≤3 days"; a referral past 14 days is absent from the active list, appears in the read-only Expired section, opens read-only, and cannot be edited or lodged.
 
 ---
 
@@ -414,9 +427,10 @@ app calls:
 | Connector | App calls | Real HNZ service / standard | Status |
 |---|---|---|---|
 | `auth` | `current_user(role)`, `can_sign_part_e(role)` | My Health Account Workforce (OIDC) | stub |
-| `nhi` | `validate(nhi)`, `lookup(nhi)` | NHI FHIR API (Hira); HISO 10046 | stub |
-| `hpi` | `default_provider_number()`, `provider_lookup()` | HPI FHIR API (Hira); HISO 10005/6 | stub |
+| `nhi` | `validate(nhi)`, `lookup(nhi)` | NHI FHIR API (Digital Services Hub); HISO 10046 | stub |
+| `hpi` | `default_provider_number()`, `provider_lookup()` | HPI FHIR API (Digital Services Hub); HISO 10005/6 | stub |
 | `pms` | `get_encounter_context()` | PMS/PAS via SMART on FHIR launch | stub |
+| `sdhr` | `get_core_health_info(nhi)`, `contribute(claim)` | Shared Digital Health Record (SDHR) FHIR API — replaces Hira | stub |
 | `terminology` | `search(q, eligible_only)`, `is_acc_eligible(code)` | SNOMED CT NZ Edition (`$expand`/`$validate-code`) | stub |
 | `acc` | `allocate_claim_number(seq)`, `lodge(claim)`, `decision(choice)` | ACC Claim Number Allocation API + eLodgement | stub |
 | `audit` | `record(actor, action, detail)` | append-only audit (FHIR AuditEvent) | stub |
