@@ -308,10 +308,19 @@ current user`, and organised around the **14-day edit/revision/repair window**
 
 - Brand header bar with the signed-in user + role.
 - Heading **"My ACC submissions"** and a note that referrals are kept 14 days for update/revision/repair, then drop off the active list.
-- **Summary metric strip:** Active · Drafts to finish · Ready to lodge · Awaiting ACC · Needs repair (amber/red when >0) · Expiring ≤3 days (amber when >0).
+- **Summary metric strip:** Unsubmitted · Ready to lodge · Submitted (14-day) · Needs repair (red when >0) · Expiring ≤3 days (amber when >0).
 - Primary button **"➕ New ACC45 claim (from PMS encounter)"**.
-- **Active submissions** (`days_left > 0`), **sorted most-urgent-first** (ascending days left). Columns: `ACC45 no.` (mono), `Patient` (+ "needs action" pill for draft/held/declined), `Status` (pill), `Accident`, **`Edit window`** (see below), and **Open**.
-- **Expired** (`days_left ≤ 0`) in a collapsed, read-only expander ("past 14-day window"); rows open in **View** (read-only) mode.
+
+Two panes for the active working set (`days_left > 0`), each sorted most-urgent-first, sharing columns `ACC45 no.` (mono), `Patient`, `Status`, `Accident`, **`Edit window`**, action button:
+
+- **Pane 1 — Unsubmitted** (status `draft` or `ready`). The **Status** column shows the *next step to lodge*, from `readiness(claim)`:
+  - **"Admin step needed"** (amber) — a clerical/administrative field is outstanding: patient name/DOB, accident date, cause, consent, or sport (when sporting). *Takes priority.*
+  - **"Clinician info needed"** (blue) — admin done, but clinical items outstanding: ≥1 (ACC-eligible) diagnosis, body side, conditional capacity text, declaration, or provider number.
+  - **"Ready to lodge"** (green) — validation passes.
+  Row action = **Open** → lands on the **Administrative** tab.
+- **Pane 2 — Submitted** (status `lodged` / `accepted` / `held` / `declined`, still inside the 14-day window). The **Status** column shows the ACC status pill + decision; `held`/`declined` get a "needs action" pill. Row action = **Open** → lands on the **Review & lodge** tab.
+
+- **Expired** (`days_left ≤ 0`, any status) in a collapsed, read-only expander; rows open in **View** (read-only) mode.
 
 **Edit-window rules.**
 - `days_left(claim) = 14 − (today − created).days`; `is_expired = days_left ≤ 0`.

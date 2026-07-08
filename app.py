@@ -295,6 +295,34 @@ def needs_repair(c):
     return c["status"] in ("draft", "held", "declined")
 
 
+def readiness(c):
+    """For an unsubmitted (draft/ready) claim, what's the next step to lodge?
+    Returns (code, label): 'admin' (clerical/admin step), 'clinician' (clinical info),
+    or 'ready' (ready to lodge). Admin gaps take priority (they come first in the flow)."""
+    p, a, cap, dec = c["patient"], c["accident"], c["capacity"], c["declaration"]
+    admin_missing = (not p["given"] or not p["family"] or not p["dob"]
+                     or not a["adate"] or not a["cause"].strip()
+                     or not c["consent"]["given"]
+                     or (a.get("sporting") == "Yes" and not a.get("sport")))
+    eligible = [d for d in c["diagnoses"] if d["acc"]]
+    clin_missing = (len(c["diagnoses"]) == 0 or not eligible
+                    or any(not d["side"] for d in c["diagnoses"])
+                    or (cap["state"] == "Fit for selected work" and not cap["restrictions"].strip())
+                    or (cap["state"] == "Fully unfit" and not cap["justification"].strip())
+                    or not dec["made"] or not dec["provider_no"])
+    if admin_missing:
+        return ("admin", "Admin step needed")
+    if clin_missing:
+        return ("clinician", "Clinician info needed")
+    return ("ready", "Ready to lodge")
+
+
+def readiness_pill(c):
+    code, label = readiness(c)
+    cls = {"admin": "warn", "clinician": "blue", "ready": "ok"}[code]
+    return f'<span class="pill {cls}">{label}</span>'
+
+
 def sec(title):
     st.markdown(f'<div class="sec">{title}</div>', unsafe_allow_html=True)
 
@@ -420,7 +448,14 @@ def seed_claims():
         "diagnoses": [_dx("20946005", "Fracture of distal radius (wrist)", "Right", True, "accepted", True)],
         "declaration": {"made": True, "date": "(signed)", "by": "Dr A. Rangi", "provider_no": "HP-44921"},
     })
-    return [c2, c1, c4, c3, c5]
+    # 0) Early-stage DRAFT — patient from PMS but accident/consent not yet done → "Admin step needed".
+    c0 = _merge(_base("IO16453"), {
+        "status": "draft", "created": date.today(),
+        "patient": {"pas_id": "PAS-90011", "given": "Hemi", "family": "Walker", "dob": "2001-05-08",
+                    "nhi": "RTK1180", "mobile": "021 004 5567", "address": "12 Kauri Ave, Christchurch 8013"},
+        "accident": {"adate": None, "atime": "", "location": "Christchurch City", "scene": "Home", "cause": ""},
+    })
+    return [c0, c2, c1, c4, c3, c5]
 
 
 # --------------------------------------------------------------------------
@@ -500,18 +535,34 @@ def change_request_dialog(c):
 # --------------------------------------------------------------------------
 # panels
 # --------------------------------------------------------------------------
-def _submission_row(c, read_only=False):
-    cols = st.columns([1.05, 1.7, 1.35, 1.15, 1.6, 0.75])
+_ROW_W = [1.05, 1.7, 1.75, 1.1, 1.5, 0.75]
+_ROW_HEAD = ["ACC45 NO.", "PATIENT", "STATUS", "ACCIDENT", "EDIT WINDOW", ""]
+
+
+def _row_header():
+    h = st.columns(_ROW_W)
+    for col, t in zip(h, _ROW_HEAD):
+        col.markdown(f'<div class="sec" style="margin:0">{t}</div>', unsafe_allow_html=True)
+
+
+def _submission_row(c, kind="submitted"):
+    read_only = kind == "expired"
+    cols = st.columns(_ROW_W)
     cols[0].markdown(f'<span class="mono" style="font-size:12.5px;color:var(--slate-700)">{c["reference"]}</span>',
                      unsafe_allow_html=True)
-    repair = ' <span class="pill warn">needs action</span>' if (needs_repair(c) and not read_only) else ""
+    repair = ' <span class="pill warn">needs action</span>' if (kind == "submitted" and needs_repair(c)) else ""
     cols[1].markdown(f'{c["patient"]["given"]} {c["patient"]["family"]}{repair}', unsafe_allow_html=True)
-    cols[2].markdown(status_pill(c["status"]), unsafe_allow_html=True)
+    # STATUS cell: readiness for unsubmitted; ACC status (+decision) otherwise
+    if kind == "unsubmitted":
+        cols[2].markdown(readiness_pill(c), unsafe_allow_html=True)
+    else:
+        dec = f' <span class="mono">{c["decision"]}</span>' if c.get("decision") else ""
+        cols[2].markdown(status_pill(c["status"]) + dec, unsafe_allow_html=True)
     cols[3].write(str(c["accident"]["adate"] or "—"))
     cols[4].markdown(window_pill(c), unsafe_allow_html=True)
     if cols[5].button("Open" if not read_only else "View", key="open_" + c["id"]):
         st.session_state.active = c["id"]
-        st.session_state.tab = "admin"
+        st.session_state.tab = "admin" if kind == "unsubmitted" else "review"
         st.rerun()
 
 
@@ -531,17 +582,18 @@ def dashboard():
     st.caption("ACC45 referrals are kept here for **14 days** for update, revision or repair. "
                "After that they drop off your active list (read-only below).")
 
-    # summary metrics over the active working set
-    drafts = sum(1 for c in active if c["status"] == "draft")
-    ready = sum(1 for c in active if c["status"] == "ready")
-    awaiting = sum(1 for c in active if c["status"] == "lodged")
-    repair = sum(1 for c in active if c["status"] in ("held", "declined"))
-    expiring = sum(1 for c in active if 0 < days_left(c) <= 3)
+    # panes
+    unsubmitted = sorted([c for c in active if c["status"] in ("draft", "ready")], key=days_left)
+    submitted = sorted([c for c in active if c["status"] in ("lodged", "accepted", "held", "declined")], key=days_left)
+
+    # summary metrics
+    ready_to_lodge = sum(1 for c in unsubmitted if readiness(c)[0] == "ready")
+    repair = sum(1 for c in submitted if c["status"] in ("held", "declined"))
+    expiring = sum(1 for c in submitted if 0 < days_left(c) <= 3)
     html('<div class="metricrow">'
-         f'<div class="metric"><div class="mv">{len(active)}</div><div class="ml">Active</div></div>'
-         f'<div class="metric"><div class="mv">{drafts}</div><div class="ml">Drafts to finish</div></div>'
-         f'<div class="metric"><div class="mv">{ready}</div><div class="ml">Ready to lodge</div></div>'
-         f'<div class="metric"><div class="mv">{awaiting}</div><div class="ml">Awaiting ACC</div></div>'
+         f'<div class="metric"><div class="mv">{len(unsubmitted)}</div><div class="ml">Unsubmitted</div></div>'
+         f'<div class="metric"><div class="mv">{ready_to_lodge}</div><div class="ml">Ready to lodge</div></div>'
+         f'<div class="metric"><div class="mv">{len(submitted)}</div><div class="ml">Submitted (14-day)</div></div>'
          f'<div class="metric{" err" if repair else ""}"><div class="mv">{repair}</div><div class="ml">Needs repair</div></div>'
          f'<div class="metric{" warn" if expiring else ""}"><div class="mv">{expiring}</div><div class="ml">Expiring ≤3 days</div></div>'
          '</div>')
@@ -553,24 +605,33 @@ def dashboard():
         st.session_state.tab = "admin"
         st.rerun()
 
-    # active submissions (inside the 14-day window), most urgent first
+    # 1) UNSUBMITTED — drafts & ready to lodge; STATUS = next step to lodge
     with st.container(border=True):
-        sec("Active submissions · within 14-day edit window")
-        if not active:
-            st.caption(f"No active submissions for {user['name']}.")
+        sec("Unsubmitted · drafts &amp; ready to lodge")
+        if not unsubmitted:
+            st.caption("Nothing unsubmitted.")
         else:
-            h = st.columns([1.05, 1.7, 1.35, 1.15, 1.6, 0.75])
-            for col, t in zip(h, ["ACC45 NO.", "PATIENT", "STATUS", "ACCIDENT", "EDIT WINDOW", ""]):
-                col.markdown(f'<div class="sec" style="margin:0">{t}</div>', unsafe_allow_html=True)
-            for c in active:
-                _submission_row(c)
+            _row_header()
+            for c in unsubmitted:
+                _submission_row(c, kind="unsubmitted")
 
-    # expired / archived — read-only
+    # 2) SUBMITTED — lodged/decided, still inside the 14-day update/revision/repair window
+    with st.container(border=True):
+        sec("Submitted · within 14-day update / revision / repair window")
+        if not submitted:
+            st.caption("Nothing submitted in the last 14 days.")
+        else:
+            _row_header()
+            for c in submitted:
+                _submission_row(c, kind="submitted")
+
+    # 3) EXPIRED — read-only (past the 14-day window)
     if expired:
         with st.expander(f"Expired — read-only (past 14-day window) · {len(expired)}"):
-            st.caption("The 14-day update/revision/repair window has closed. These are shown for reference only.")
+            st.caption("The 14-day update/revision/repair window has closed. Shown for reference only.")
+            _row_header()
             for c in expired:
-                _submission_row(c, read_only=True)
+                _submission_row(c, kind="expired")
 
 
 def admin_panel(c):
