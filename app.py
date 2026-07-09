@@ -189,6 +189,14 @@ CSS = """
   .panelhdr{padding:9px 14px; background:var(--blue-50); border-bottom:1px solid var(--slate-200);
     font-size:11.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--blue); font-weight:700;}
 
+  /* Streamlit wraps injected block-level HTML in a flex box that under-measures its height,
+     so .sec labels overflowed their box and printed on top of the element beneath (column
+     headers onto the first data row; workspace section labels onto their first field).
+     Force any box carrying a .sec label to contain its own text. Taller siblings (data rows,
+     inputs) already exceed these minimums, so nothing else moves. */
+  [data-testid="stElementContainer"]:has(.sec){min-height:26px;}
+  [data-testid="stHorizontalBlock"]:has(.sec){min-height:20px;}
+
   /* "New ACC45 claim" sits at the upper right, level with the page title */
   .st-key-new_claim_btn .stButton{display:flex; justify-content:flex-end;}
 </style>
