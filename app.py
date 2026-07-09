@@ -259,15 +259,32 @@ def validate(c):
     return errs, warns, (len(errs) == 0)
 
 
+# The single practice this prototype models. Used only as a display label — the prototype
+# assumes one facility and does not scope by it. Multi-facility scoping (row-level security
+# keyed on HPI Organisation) is a production concern; see PRODUCTION-READINESS.md §A.
+PRACTICE_FACILITY = "Riverside Medical Centre"
+
+
+def _actor_name(role: str | None = None) -> str:
+    return cx.auth.current_user(role or st.session_state.get("role", "clinical"))["name"]
+
+
+def mark_touched(ref: str) -> None:
+    """Add a claim to the current user's working set (they created or opened it)."""
+    st.session_state.setdefault("touched", {}).setdefault(_actor_name(), set()).add(ref)
+
+
 def active_claim():
-    return next((c for c in st.session_state.claims if c["id"] == st.session_state.active), None)
+    c = next((c for c in st.session_state.claims if c["id"] == st.session_state.active), None)
+    if c is not None:
+        mark_touched(c["reference"])   # opening a claim adds it to your working set
+    return c
 
 
 def audit_save(c, action):
     """Persist the claim and record an attributed, versioned audit entry (see connectors)."""
     role = st.session_state.get("role", "clinical")
-    author = cx.auth.current_user(role)["name"]
-    cx.persistence.save(c, author, role, action)
+    cx.persistence.save(c, _actor_name(role), role, action)
 
 
 STATUS = {"draft": ("pill", "Draft"), "ready": ("pill blue", "Ready to lodge"),
@@ -428,7 +445,7 @@ def _dx(code, disp, side, acc, status="draft", primary=False):
 def seed_claims():
     # 1) In-progress DRAFT — consent + one diagnosis captured, but not yet certified/declared (mid-edit).
     c1 = _merge(_base("IO16452"), {
-        "status": "draft", "created": date.today() - timedelta(days=3),
+        "status": "draft", "created": date.today() - timedelta(days=3), "created_by": "R. Patel",
         "patient": {"pas_id": "PAS-40021", "given": "Aroha", "family": "Ngata", "dob": "1991-06-02",
                     "nhi": "KLP2286", "mobile": "021 448 1190", "address": "9 Tui Lane, Christchurch 8014"},
         "employment": {"status": "Employee", "occupation": "Warehouse assistant", "employer": "Southern Distribution Ltd"},
@@ -496,12 +513,25 @@ def seed_claims():
     })
     # 0) Early-stage DRAFT — patient from PMS but accident/consent not yet done → "Admin step needed".
     c0 = _merge(_base("IO16453"), {
-        "status": "draft", "created": date.today(),
+        "status": "draft", "created": date.today(), "created_by": "R. Patel",
         "patient": {"pas_id": "PAS-90011", "given": "Hemi", "family": "Walker", "dob": "2001-05-08",
                     "nhi": "RTK1180", "mobile": "021 004 5567", "address": "12 Kauri Ave, Christchurch 8013"},
         "accident": {"adate": None, "atime": "", "location": "Christchurch City", "scene": "Home", "cause": ""},
     })
-    return [c0, c2, c1, c4, c3, c5]
+    # 6) COLLEAGUE'S claim at the SAME practice — you haven't opened it, so it sits in the
+    #    "rest of the practice" pool until you open it (per-identity working set).
+    c6 = _merge(_base("IO16448"), {
+        "status": "draft", "created": date.today() - timedelta(days=1), "created_by": "Dr K. Mere",
+        "encounter": {"provider": "Dr K. Mere (GP)"},
+        "patient": {"pas_id": "PAS-60455", "given": "Peter", "family": "Nabou", "dob": "1985-03-11",
+                    "nhi": "JHW4472", "mobile": "021 555 8890", "address": "40 Totara Street, Christchurch 8024"},
+        "employment": {"status": "Employee", "occupation": "Electrician", "employer": "Voltec Ltd"},
+        "accident": {"adate": date(2026, 7, 8), "atime": "10:30", "location": "Christchurch City", "scene": "Work",
+                     "workplace": "Yes", "cause": "cut left hand on a stripped wire while pulling cable"},
+        "consent": {"given": True, "at": "08/07/2026 10:55"},
+        "diagnoses": [_dx("283748003", "Laceration of hand", "Left", True, "draft", True)],
+    })
+    return [c0, c2, c1, c4, c3, c5, c6]
 
 
 # --------------------------------------------------------------------------
@@ -513,12 +543,19 @@ if "claims" not in st.session_state:
     st.session_state.active = None
     st.session_state.role = "clinical"
     st.session_state.tab = "admin"        # active workspace tab
+    # Per-identity working set: a claim is "yours" once you create or open it. Seed each
+    # existing claim into its creator's set so both simulated users start with a sensible
+    # working set and see colleagues' untouched claims in the practice pool below.
+    st.session_state.touched = {}
+    for _c in st.session_state.claims:
+        st.session_state.touched.setdefault(_c["created_by"], set()).add(_c["reference"])
     # Synthesise an attributed, multi-author audit trail for the sample claims so the
     # audit view has history to inspect (each save is versioned + attributed).
     for _c in st.session_state.claims:
         if cx.persistence.versions(_c["reference"]):
             continue  # store is process-global; don't re-seed history on new sessions
-        cx.persistence.save(_c, "R. Patel", "clerical", "claim created")
+        _creator = _c["created_by"]
+        cx.persistence.save(_c, _creator, "clinical" if _creator.startswith("Dr") else "clerical", "claim created")
         if _c["consent"]["given"]:
             cx.persistence.save(_c, "R. Patel", "clerical", "patient details & consent recorded")
         if _c["diagnoses"]:
@@ -629,6 +666,35 @@ def _submission_row(c, kind="submitted"):
         st.rerun()
 
 
+_POOL_W = [1.05, 1.7, 1.7, 1.15, 1.5, 0.75]
+
+
+def _practice_header():
+    h = st.columns(_POOL_W)
+    for col, t in zip(h, ["ACC45 NO.", "PATIENT", "STATUS", "ACCIDENT", "CREATED BY", ""]):
+        col.markdown(f'<div class="sec" style="margin:0">{t}</div>', unsafe_allow_html=True)
+
+
+def _practice_row(c):
+    cols = st.columns(_POOL_W)
+    cols[0].markdown(f'<span class="mono" style="font-size:12.5px;color:var(--slate-700)">{c["reference"]}</span>',
+                     unsafe_allow_html=True)
+    cols[1].markdown(f'{c["patient"]["given"]} {c["patient"]["family"]}', unsafe_allow_html=True)
+    if c["status"] in ("draft", "ready"):
+        cols[2].markdown(readiness_pill(c), unsafe_allow_html=True)
+    else:
+        dec = f' <span class="mono">{c["decision"]}</span>' if c.get("decision") else ""
+        cols[2].markdown(status_pill(c["status"]) + dec, unsafe_allow_html=True)
+    cols[3].write(str(c["accident"]["adate"] or "—"))
+    cols[4].markdown(f'<span class="mono" style="font-size:12px;color:var(--slate-500)">{c["created_by"]}</span>',
+                     unsafe_allow_html=True)
+    if cols[5].button("Open", key="pool_open_" + c["id"]):
+        st.session_state.active = c["id"]
+        st.session_state.tab = "admin" if c["status"] in ("draft", "ready") else "review"
+        mark_touched(c["reference"])
+        st.rerun()
+
+
 def dashboard():
     user = cx.auth.current_user(st.session_state.get("role", "clinical"))
     html('<div class="apphdr">'
@@ -636,19 +702,26 @@ def dashboard():
          '<span class="sub">ACC Claim Console · research mockup</span><span class="grow"></span>'
          f'<span class="sub">{user["name"]} · {user["role_label"]}</span></div>')
 
-    # clerical + clinical share the practice working set
-    mine = st.session_state.claims
+    # Single-practice prototype: every claim belongs to this one facility, so there is no
+    # facility filter here — claims split into a per-identity working set (claims you created
+    # or opened) and the rest of the practice's pool. (Multi-facility scoping via RLS, and
+    # concurrency-safe shared editing / optimistic locking, are production concerns — see
+    # PRODUCTION-READINESS.md §A and §G.)
+    me_name = _actor_name()
+    touched = st.session_state.get("touched", {}).get(me_name, set())
+    working = [c for c in st.session_state.claims if c["reference"] in touched]
+    pool = [c for c in st.session_state.claims if c["reference"] not in touched]
 
     st.markdown("#### ACC submissions")
     st.caption("Unsubmitted referrals have no edit clock — but ACC should be lodged **within 12 months** of the "
                "accident (later needs supporting records). Once **submitted**, a referral stays editable for "
                "**14 days** for update, revision or repair, then drops off (read-only).")
 
-    # panes
-    unsubmitted = sorted([c for c in mine if c["status"] in ("draft", "ready")],
+    # panes — your working set (claims you've created or opened)
+    unsubmitted = sorted([c for c in working if c["status"] in ("draft", "ready")],
                          key=lambda c: (days_since_accident(c) is None, -(days_since_accident(c) or 0)))
-    submitted = sorted([c for c in mine if is_submitted(c) and not is_expired(c)], key=days_left)
-    expired = sorted([c for c in mine if is_expired(c)], key=lambda c: c.get("lodged_on") or date.today())
+    submitted = sorted([c for c in working if is_submitted(c) and not is_expired(c)], key=days_left)
+    expired = sorted([c for c in working if is_expired(c)], key=lambda c: c.get("lodged_on") or date.today())
 
     # summary metrics
     ready_to_lodge = sum(1 for c in unsubmitted if readiness(c)[0] == "ready")
@@ -697,6 +770,19 @@ def dashboard():
             _row_header("submitted")
             for c in expired:
                 _submission_row(c, kind="expired")
+
+    # 4) REST OF THE PRACTICE — same facility, but not in your working set yet. Opening one
+    #    moves it up into the panes above (it joins your per-identity "touched" set).
+    with st.container(border=True):
+        sec(f"Rest of {PRACTICE_FACILITY} · not yet opened by you · {len(pool)}")
+        if not pool:
+            st.caption("You've opened every claim in the practice.")
+        else:
+            st.caption("Claims colleagues started that you haven't opened yet — open one to add it to your "
+                       "working set above.")
+            _practice_header()
+            for c in sorted(pool, key=lambda c: c["reference"]):
+                _practice_row(c)
 
 
 def admin_panel(c):

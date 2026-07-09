@@ -25,6 +25,15 @@ map workforce identity → app roles/scopes; enforce MFA, session timeout, and p
 authorisation **server-side**. RealMe / My Health Account for any consumer-facing flow.
 **Also needed.** Remove the role switcher; least-privilege RBAC (admin vs prescriber vs
 limited scope); scope-of-practice checks for who may lodge which claim types.
+**Record-level visibility.** The prototype assumes a **single practice/facility** and does
+**not** scope by facility; within that one practice it demonstrates a per-identity **working
+set** — claims a user created or opened — split from a pool of the rest of the practice's
+claims they can pull from. Production is **multi-facility** and must add facility scoping as
+a **server-side** boundary — **row-level security keyed on the facility (HPI Organisation)**,
+not a UI filter — so a user sees only their own facility's claims, with **break-glass**
+access (an explicit reason captured to the audit trail, flagged for review) for
+cross-facility or **sensitive-claim** access. The per-identity "touched" set is a
+convenience view, not a security control — visibility must be governed by facility + role.
 
 ## B. Patient identity & demographics (P0) — *connector: `nhi`*
 **Gap.** NHI is a regex format check; no lookup; demographics are typed/seeded.
@@ -73,6 +82,13 @@ opaque string (format is changing).
 sovereignty), encryption at rest, backups/retention, concurrency-safe multi-user access,
 optimistic locking, and **claim versioning/amendment history**. Consider Māori Data
 Sovereignty (Te Mana Raraunga) principles.
+**Concurrency (not in the prototype).** The prototype edits a single shared in-memory claim
+object, so there is no cross-user contention to resolve; claims are **shared-editable** by
+any authorised same-facility user. Production is multi-user and must add **optimistic
+locking**: each open records the `claim_version` it loaded, and a save is **rejected if
+another author has saved since** — prompting the editor to reload and re-apply their change
+rather than silently clobbering the other author's edit. (Lodged claims are already
+edit-locked except via post-lodgement change requests, so contention is mainly on drafts.)
 **Retention policy.** The app keeps ACC45 referrals editable for a **14-day
 update/revision/repair window** (`EDIT_WINDOW_DAYS`), after which they become read-only
 and drop off the user's active dashboard. The datastore must enforce this policy (and any
