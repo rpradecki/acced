@@ -32,19 +32,20 @@ the diagnosis list is read-only; new injuries from the *same accident* are added
 
 ## 2. Roles & permissions
 
-A single **role switcher** (global) selects the active user. Role affects only the
-practitioner declaration and is enforced in the declaration UI.
+Three first-class roles, selected by the role switcher (a dev-only stand-in for
+My Health Account Workforce sign-in). Permissions come from the auth connector and are
+enforced across the whole UI.
 
-| Role key | Display label | Can complete Part E declaration? |
-|---|---|---|
-| `prescriber` | Dr A. Rangi — GP (prescriber) | **Yes** |
-| `limited` | J. Neho — Physiotherapist (limited) | No (control disabled, reason shown) |
-| `admin` | R. Patel — Reception (admin) | No |
+| Role key | User | Edit admin (Part A/B/consent) | Edit clinical (Part C/D/E) | Submit / lodge | View | Dashboard |
+|---|---|---|---|---|---|---|
+| `clerical` | R. Patel — Clerical / Reception | **Yes** | No (read-only view) | No | summary yes | shared working set |
+| `clinical` | Dr A. Rangi — Clinician | Yes | **Yes** (+ sign Part E) | **Yes** | yes | shared working set |
+| `audit` | M. Chen — Audit / Review | No | No | No | **all claims, read-only** | Audit dashboard |
 
-> Only `prescriber` may sign Part E and enter the provider number. Other roles see the
-> declaration controls disabled with an explanatory banner. (All roles can otherwise
-> view/edit the form in this mockup; a production build would scope Admin vs Clinician
-> tabs per role — see Product Spec §2.)
+Behaviour:
+- **Clerical** edits the Administrative tab and captures consent; the Clinician tab renders as a **read-only** clinical view; the Review tab shows the summary but the **lodge control is replaced by a "cannot submit" notice**; post-lodgement diagnosis changes are hidden (clinical action).
+- **Clinical** does everything, including signing Part E and lodging.
+- **Audit** does not use the workspace at all. It gets its **own dashboard** listing **every** claim (all statuses/authors), **searchable by patient name or NHI**; each row has **Inspect** → a **read-only** summary plus the **attributed audit trail** (§14).
 
 ---
 
@@ -82,8 +83,9 @@ and in rules).
 | `id` | string | unique |
 | `reference` | string | allocated ACC45 number, e.g. `IO16457` (opaque string) |
 | `number_source` | enum | `acc_allocation_api` \| `preallocated_block` |
-| `created` | date | claim creation date — anchors the 14-day edit window |
+| `created` | date | claim creation date |
 | `created_by` | string | owning user (dashboard is scoped to this) |
+| `lodged_on` | date\|null | set at lodgement; **anchors the 14-day repair window** (null while unsubmitted) |
 | `status` | enum | `draft` \| `ready` \| `lodged` \| `accepted` \| `held` \| `declined` |
 | `decision` | string\|null | `Received` \| `Accepted` \| `Held` \| `Declined` \| null |
 | `encounter` | Encounter | see below |
@@ -293,6 +295,7 @@ Four Yes/No controls. Contextual banners when set to `Yes`:
 **Warnings (do not block):**
 - `No NHI supplied — slows processing.` — if `nhi` empty.
 - `No mobile — patient won't get an SMS decision.` — if `mobile` empty.
+- `Accident was over 12 months ago — delayed lodgement needs supporting clinical records.` — if the accident is ≥ 365 days ago.
 
 The lodge control must be **disabled** while any error exists; in a real build, re-validate
 server-side at lodge so a stale client cannot bypass the gate.
@@ -313,19 +316,20 @@ current user`, and organised around the **14-day edit/revision/repair window**
 
 Two panes for the active working set (`days_left > 0`), each sorted most-urgent-first, sharing columns `ACC45 no.` (mono), `Patient`, `Status`, `Accident`, **`Edit window`**, action button:
 
-- **Pane 1 — Unsubmitted** (status `draft` or `ready`). The **Status** column shows the *next step to lodge*, from `readiness(claim)`:
+- **Pane 1 — Unsubmitted** (status `draft` or `ready`). **Unsubmitted claims have no edit clock** — the last column (**"LODGE BY"**) shows *lodgement timeliness* relative to the accident, not a repair countdown: "N days since accident" (muted), "Approaching 12-month limit" (amber ≥ ~300 days), or "Delayed lodgement >12mo — extra records" (red ≥ 365 days). The **Status** column shows the *next step to lodge*, from `readiness(claim)`:
   - **"Admin step needed"** (amber) — a clerical/administrative field is outstanding: patient name/DOB, accident date, cause, consent, or sport (when sporting). *Takes priority.*
   - **"Clinician info needed"** (blue) — admin done, but clinical items outstanding: ≥1 (ACC-eligible) diagnosis, body side, conditional capacity text, declaration, or provider number.
   - **"Ready to lodge"** (green) — validation passes.
   Row action = **Open** → lands on the **Administrative** tab.
-- **Pane 2 — Submitted** (status `lodged` / `accepted` / `held` / `declined`, still inside the 14-day window). The **Status** column shows the ACC status pill + decision; `held`/`declined` get a "needs action" pill. Row action = **Open** → lands on the **Review & lodge** tab.
+- **Pane 2 — Submitted** (status `lodged` / `accepted` / `held` / `declined`, still inside the 14-day window). Last column (**"REPAIR WINDOW"**) shows the post-lodgement countdown. The **Status** column shows the ACC status pill + decision; `held`/`declined` get a "needs action" pill. Row action = **Open** → lands on the **Review & lodge** tab.
 
-- **Expired** (`days_left ≤ 0`, any status) in a collapsed, read-only expander; rows open in **View** (read-only) mode.
+- **Expired** (`days_left ≤ 0`) in a collapsed, read-only expander; rows open in **View** (read-only) mode.
 
-**Edit-window rules.**
-- `days_left(claim) = 14 − (today − created).days`; `is_expired = days_left ≤ 0`.
-- **Edit-window pill:** neutral/blue normally; **amber ≤ 7 days**; **red ≤ 3 days**; "Edit window expired" at ≤ 0.
-- When expired, the claim is **read-only**: the workspace shows a read-only banner, the clinician diagnosis grid is locked, and **lodging is disabled**. (Ongoing certification would continue via a new ACC18, out of this window.)
+**Window rules.**
+- The 14-day window is **post-lodgement**: `days_left = 14 − (today − lodged_on).days`; **`None` for unsubmitted** (no `lodged_on`). `is_expired = days_left is not None and ≤ 0`. `lodged_on` is set when the claim is lodged.
+- **Repair-window pill (Submitted only):** neutral/blue normally; **amber ≤ 7**; **red ≤ 3**; "Repair window expired" at ≤ 0. Nothing shown for unsubmitted.
+- When expired, the claim is **read-only**: workspace read-only banner, clinician grid locked, lodging disabled. (Ongoing certification continues via a new ACC18, out of this window.)
+- **Lodgement timeliness (separate rule):** ACC considers claims lodged **within ~12 months** of the accident (`LODGE_LIMIT_DAYS = 365`); ≥ 12 months adds a non-blocking warning ("delayed lodgement needs supporting clinical records"; sensitive claims excepted).
 
 ### 9.2 Workspace header + tab nav
 - "← Home" button (clears `active_claim_id`).
@@ -426,7 +430,9 @@ A replicated build should pass all of these (mirrors the reference test suite):
 9. **Role gate:** switching to `limited` disables the Part E declaration with an explanatory banner.
 10. **Review summary:** the Review tab shows the full ACC45 summary (all Part A–E sections with entered values) directly under Lodgement readiness, in every claim state.
 11. **Layout:** the app header and controls are not obscured by the top chrome.
-12. **14-day window:** the dashboard shows a per-user working set; a referral ≤3 days from expiry shows a red edit-window pill and counts in "Expiring ≤3 days"; a referral past 14 days is absent from the active list, appears in the read-only Expired section, opens read-only, and cannot be edited or lodged.
+12. **14-day window:** submitted referrals show a post-lodgement repair countdown; ≤3 days from expiry shows a red pill and counts in "Expiring ≤3 days"; past 14 days a referral is read-only in the Expired section. Unsubmitted referrals show 12-month lodgement timeliness, not an edit clock.
+13. **Roles:** `clerical` edits Administrative but sees the Clinician tab read-only and cannot lodge (a "cannot submit" notice replaces the lodge control); `clinical` edits everything, signs Part E, and can lodge; `audit` gets an all-claims dashboard searchable by name/NHI and read-only Inspect.
+14. **Attributed audit trail:** every save is versioned and attributed; the Audit → Inspect view shows the change history with author + role per version (e.g. R. Patel/clerical then Dr A. Rangi/clinical), and the same claim's summary read-only.
 
 ---
 
@@ -446,13 +452,56 @@ app calls:
 | `sdhr` | `get_core_health_info(nhi)`, `contribute(claim)` | Shared Digital Health Record (SDHR) FHIR API — replaces Hira | stub |
 | `terminology` | `search(q, eligible_only)`, `is_acc_eligible(code)` | SNOMED CT NZ Edition (`$expand`/`$validate-code`) | stub |
 | `acc` | `allocate_claim_number(seq)`, `lodge(claim)`, `decision(choice)` | ACC Claim Number Allocation API + eLodgement | stub |
-| `audit` | `record(actor, action, detail)` | append-only audit (FHIR AuditEvent) | stub |
-| `persistence` | `save(claim)`, `load_all()` | NZ-region datastore | stub |
+| `audit` | `record(author, role, action, reference, detail)`, `history(reference)` | append-only audit (FHIR AuditEvent) | stub |
+| `persistence` | `save(claim, author, role, action)`, `versions(reference)`, `load_all()` | NZ-region datastore (see §14) | stub |
 | `notification` | `send_decision_sms(...)` | messaging provider | stub |
 
 Full gap analysis, standards, and go-live gate: **`PRODUCTION-READINESS.md`**. A replica
 is *mockup-conformant* if it satisfies §§2–12 with stubs; *production-conformant* only when
 the P0 connectors/standards in that document are met.
+
+---
+
+## 14. Claim store & audit trail (attributed persistence)
+
+The claim datastore is modelled behind the **`persistence`** connector, built around the
+claim aggregate in §4. **Every save is versioned and attributed to its author**, and
+mirrored into the **`audit`** trail; the Audit **Inspect** view renders that trail.
+
+**Store schema (target).**
+```
+claim(reference PK, status, created, created_by, lodged_on, decision,
+      patient/employment/accident/consent/capacity/declaration/flags …)
+diagnosis(id, claim_ref FK, code, system, display, side, acc_eligible, status)
+change_request(id, claim_ref FK, kind, code, same_event, bundled, status)
+claim_version(reference FK, version, ts, author, role, action)   -- append-only, one row per save
+audit_event(ts, author, role, action, reference, detail)         -- who/what/when/why
+```
+
+**Save/attribution rule.** `persistence.save(claim, author, role, action)` appends a
+`claim_version` (auto-incrementing `version`, timestamp, author name, role, action label),
+snapshots the claim, and writes an `audit_event`. The app calls it on every meaningful,
+author-attributable action: **claim created, consent recorded, diagnosis added/removed,
+Part E declaration signed, lodged, ACC decision, diagnosis-change request**. So each entry
+names the person and role responsible.
+
+**Audit-trail visibility.** The Audit role's **Inspect** view shows the read-only ACC45
+summary **plus** an "Audit trail · attributed change history" table:
+`Ver | When | Author | Role | Action` — oldest-first, e.g.:
+
+| Ver | When | Author | Role | Action |
+|---|---|---|---|---|
+| v1 | … | R. Patel | clerical | claim created |
+| v2 | … | R. Patel | clerical | patient details & consent recorded |
+| v3 | … | Dr A. Rangi | clinical | diagnoses & clinical assessment added |
+| v4 | … | Dr A. Rangi | clinical | Part E declaration signed |
+| v5 | … | Dr A. Rangi | clinical | lodged ACC45 |
+| v6 | … | ACC (system) | acc | ACC decision: Accepted |
+
+**Production notes.** Make `claim_version`/`audit_event` **append-only/immutable**, record
+reads of patient data too, and retain per records-management policy (see PRODUCTION-READINESS
+§G/§H). The store is process-global in the stub; a real build is a concurrency-safe DB in an
+approved NZ region with optimistic locking.
 
 ---
 

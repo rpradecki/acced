@@ -78,10 +78,15 @@ update/revision/repair window** (`EDIT_WINDOW_DAYS`), after which they become re
 and drop off the user's active dashboard. The datastore must enforce this policy (and any
 longer statutory retention for the record itself) rather than relying on in-session state.
 
-## H. Audit trail (P0) — *connector: `audit`*
+## H. Audit trail (P0) — *connector: `audit` + `persistence`*
 **Gap.** Audit is an in-memory list lost on restart.
-**Target.** Tamper-evident, append-only audit of every state change **and every read** of
-patient data (who/what/when/why), independently reviewable — claims are legal records.
+**Demonstrated in the stub.** The `persistence` store now versions and **attributes every
+save to its author (name + role)** and mirrors it into the `audit` trail; the Audit role's
+**Inspect** view renders the per-claim change history (`Ver | When | Author | Role |
+Action`). See AS-BUILT-SPEC §14 for the store schema (`claim`, `diagnosis`,
+`change_request`, `claim_version`, `audit_event`).
+**Target.** Make it tamper-evident and **append-only/immutable**, audit **every read** of
+patient data too (not just writes), independently reviewable, retained per records policy.
 FHIR `AuditEvent` is a natural fit.
 
 ## I. Privacy & consent (P0)

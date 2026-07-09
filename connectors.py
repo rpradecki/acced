@@ -16,6 +16,7 @@ This module is intentionally free of Streamlit and UI code so it is portable and
 
 from __future__ import annotations
 
+import copy
 import re
 from datetime import datetime
 
@@ -51,20 +52,42 @@ class AuthConnector:
     STATUS       : STUB — returns a simulated user chosen by the dev role switcher.
     """
     STUB = True
+    # Role → capability matrix. In production these are workforce scopes/claims.
     ROLES = {
-        "prescriber": {"name": "Dr A. Rangi", "role_label": "GP (prescriber)", "can_sign_part_e": True},
-        "limited":    {"name": "J. Neho", "role_label": "Physiotherapist (limited)", "can_sign_part_e": False},
-        "admin":      {"name": "R. Patel", "role_label": "Reception (admin)", "can_sign_part_e": False},
+        "clerical": {"name": "R. Patel", "role_label": "Clerical / Reception",
+                     "can_edit_admin": True, "can_edit_clinical": False, "can_submit": False,
+                     "can_sign_part_e": False, "is_audit": False},
+        "clinical": {"name": "Dr A. Rangi", "role_label": "Clinician",
+                     "can_edit_admin": True, "can_edit_clinical": True, "can_submit": True,
+                     "can_sign_part_e": True, "is_audit": False},
+        "audit":    {"name": "M. Chen", "role_label": "Audit / Review",
+                     "can_edit_admin": False, "can_edit_clinical": False, "can_submit": False,
+                     "can_sign_part_e": False, "is_audit": True},
     }
 
     def current_user(self, simulated_role: str) -> dict:
-        u = dict(self.ROLES.get(simulated_role, self.ROLES["prescriber"]))
+        u = dict(self.ROLES.get(simulated_role, self.ROLES["clinical"]))
         u["role_key"] = simulated_role
         u["auth_source"] = "STUB — My Health Account Workforce"
         return u
 
-    def can_sign_part_e(self, simulated_role: str) -> bool:
-        return self.ROLES.get(simulated_role, {}).get("can_sign_part_e", False)
+    def _flag(self, role: str, key: str) -> bool:
+        return self.ROLES.get(role, {}).get(key, False)
+
+    def can_sign_part_e(self, role: str) -> bool:
+        return self._flag(role, "can_sign_part_e")
+
+    def can_submit(self, role: str) -> bool:
+        return self._flag(role, "can_submit")
+
+    def can_edit_admin(self, role: str) -> bool:
+        return self._flag(role, "can_edit_admin")
+
+    def can_edit_clinical(self, role: str) -> bool:
+        return self._flag(role, "can_edit_clinical")
+
+    def is_audit(self, role: str) -> bool:
+        return self._flag(role, "is_audit")
 
 
 # ---------------------------------------------------------------------------
@@ -281,14 +304,21 @@ class AuditConnector:
                    expectations. Claims are legal records.
     PRODUCTION   : write who/what/when/why for every state change and every read of
                    patient data; make it immutable and independently reviewable.
-    STATUS       : STUB — in-memory list (lost on restart).
+    STATUS       : STUB — in-memory list (lost on restart). Each entry attributes the
+                   change to its author (name + role) against a claim reference; the
+                   audit view renders per-claim history on inspect.
     """
     STUB = True
     LOG: list[dict] = []
 
-    def record(self, actor: str, action: str, detail: str = "") -> None:
+    def record(self, author: str, role: str, action: str, reference: str = "", detail: str = "") -> None:
         self.LOG.append({"ts": datetime.now().isoformat(timespec="seconds"),
-                         "actor": actor, "action": action, "detail": detail})
+                         "author": author, "role": role, "action": action,
+                         "reference": reference, "detail": detail})
+
+    def history(self, reference: str) -> list[dict]:
+        """The attributed audit trail for one claim, oldest-first."""
+        return [e for e in self.LOG if e["reference"] == reference]
 
 
 # ---------------------------------------------------------------------------
@@ -296,22 +326,43 @@ class AuditConnector:
 # ---------------------------------------------------------------------------
 class PersistenceConnector:
     """
-    Durable, multi-user claim storage.
+    Durable, multi-user, **auditable** claim store built around the claim aggregate.
 
     REAL SERVICE : a database (per architecture) hosted in an approved NZ region.
     STANDARDS    : NZ data residency/sovereignty; encryption at rest; backup/retention;
                    Māori Data Sovereignty (Te Mana Raraunga) considerations.
-    PRODUCTION   : replace session-only state with a concurrency-safe store, optimistic
-                   locking, claim versioning/amendment history, and access logging.
-    STATUS       : STUB — the app holds claims in per-session memory (no persistence).
+    PRODUCTION   : replace session-only state with a concurrency-safe store and optimistic
+                   locking. Suggested schema (built around the dashboard's claim model):
+                     • claim(reference PK, status, created, created_by, lodged_on, decision,
+                             patient/employment/accident/consent/capacity/declaration/flags …)
+                     • diagnosis(id, claim_ref FK, code, system, display, side, acc_eligible, status)
+                     • change_request(id, claim_ref FK, kind, code, same_event, bundled, status)
+                     • claim_version(reference FK, version, ts, author, role, action) — append-only,
+                       one row per save, attributing every change to its author
+                     • audit_event(ts, author, role, action, reference, detail) — see AuditConnector
+                   Every save writes a new claim_version row (attribution) and an audit_event.
+    STATUS       : STUB — in-memory latest snapshot + per-claim version history; each save
+                   is attributed to its author and mirrored into the audit trail.
     """
     STUB = True
+    STORE: dict = {}      # reference -> latest snapshot
+    VERSIONS: dict = {}   # reference -> [ {version, ts, author, role, action} ]
 
-    def save(self, claim: dict) -> None:
-        return None  # session memory in the reference build
+    def save(self, claim: dict, author: str, role: str, action: str) -> int:
+        ref = claim["reference"]
+        v = len(self.VERSIONS.get(ref, [])) + 1
+        self.VERSIONS.setdefault(ref, []).append({
+            "version": v, "ts": datetime.now().isoformat(timespec="seconds"),
+            "author": author, "role": role, "action": action})
+        self.STORE[ref] = copy.deepcopy(claim)          # immutable-ish snapshot
+        audit.record(author, role, action, ref, f"v{v}")  # mirror into audit trail
+        return v
+
+    def versions(self, reference: str) -> list[dict]:
+        return self.VERSIONS.get(reference, [])
 
     def load_all(self) -> list[dict]:
-        return []
+        return list(self.STORE.values())
 
 
 # ---------------------------------------------------------------------------

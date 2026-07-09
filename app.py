@@ -198,7 +198,8 @@ def new_claim():
         "status": "draft",
         "decision": None,
         "created": date.today(),
-        "created_by": cx.auth.current_user(st.session_state.get("role", "prescriber"))["name"],
+        "created_by": cx.auth.current_user(st.session_state.get("role", "clinical"))["name"],
+        "lodged_on": None,
         "encounter": ctx["encounter"],
         "patient": ctx["patient"],
         "employment": {"status": "Not employed in NZ", "occupation": "Unemployed", "employer": ""},
@@ -253,11 +254,20 @@ def validate(c):
         warns.append("NHI format looks invalid (real check-character validation is via the NHI service).")
     if not p["mobile"]:
         warns.append("No mobile — patient won't get an SMS decision.")
+    if a["adate"] and (date.today() - a["adate"]).days >= LODGE_LIMIT_DAYS:
+        warns.append("Accident was over 12 months ago — delayed lodgement needs supporting clinical records.")
     return errs, warns, (len(errs) == 0)
 
 
 def active_claim():
     return next((c for c in st.session_state.claims if c["id"] == st.session_state.active), None)
+
+
+def audit_save(c, action):
+    """Persist the claim and record an attributed, versioned audit entry (see connectors)."""
+    role = st.session_state.get("role", "clinical")
+    author = cx.auth.current_user(role)["name"]
+    cx.persistence.save(c, author, role, action)
 
 
 STATUS = {"draft": ("pill", "Draft"), "ready": ("pill blue", "Ready to lodge"),
@@ -271,23 +281,56 @@ def status_pill(status):
 
 
 # ----- 14-day edit/revision/repair window --------------------------------
+LODGE_LIMIT_DAYS = 365  # ACC considers claims lodged within ~12 months of the accident
+
+
+def is_submitted(c):
+    return c["status"] in ("lodged", "accepted", "held", "declined")
+
+
 def days_left(c):
-    """Days remaining in the 14-day update/revision/repair window."""
-    created = c.get("created") or date.today()
-    return EDIT_WINDOW_DAYS - (date.today() - created).days
+    """Days left in the 14-day POST-LODGEMENT update/revision/repair window.
+    Returns None for unsubmitted drafts — the window only starts at lodgement."""
+    ref = c.get("lodged_on")
+    if not ref:
+        return None
+    return EDIT_WINDOW_DAYS - (date.today() - ref).days
 
 
 def is_expired(c):
-    return days_left(c) <= 0
+    d = days_left(c)
+    return d is not None and d <= 0
 
 
 def window_pill(c):
+    """Post-lodgement repair-window countdown (Submitted only)."""
     d = days_left(c)
+    if d is None:
+        return ""  # unsubmitted → no repair window yet
     if d <= 0:
-        return '<span class="pill err">Edit window expired</span>'
+        return '<span class="pill err">Repair window expired</span>'
     cls = "err" if d <= 3 else ("warn" if d <= 7 else "blue")
     unit = "day" if d == 1 else "days"
-    return f'<span class="pill {cls}">{d} {unit} left to edit</span>'
+    return f'<span class="pill {cls}">{d} {unit} left to revise</span>'
+
+
+def days_since_accident(c):
+    ad = c["accident"]["adate"]
+    return (date.today() - ad).days if ad else None
+
+
+def lodgement_note(c):
+    """Timeliness of lodging an UNSUBMITTED claim, relative to the accident date.
+    ACC considers claims lodged within ~12 months; later needs supporting records."""
+    n = days_since_accident(c)
+    if n is None:
+        return '<span class="mono" style="color:var(--slate-400)">accident date not set</span>'
+    if n >= LODGE_LIMIT_DAYS:
+        return '<span class="pill err">Delayed lodgement &gt;12mo — extra records</span>'
+    if n >= LODGE_LIMIT_DAYS - 65:
+        return '<span class="pill warn">Approaching 12-month limit</span>'
+    unit = "day" if n == 1 else "days"
+    return f'<span class="mono" style="color:var(--slate-400)">{n} {unit} since accident</span>'
 
 
 def needs_repair(c):
@@ -350,7 +393,7 @@ def _base(ref):
     return {
         "id": uid(), "reference": ref, "number_source": "acc_allocation_api",
         "status": "draft", "decision": None,
-        "created": date.today(), "created_by": "Dr A. Rangi",
+        "created": date.today(), "created_by": "Dr A. Rangi", "lodged_on": None,
         "encounter": {"external_id": "ENC-" + str(random.randint(100000, 999999)), "source": "pms_context",
                       "facility": "Riverside Medical Centre", "provider": "Dr A. Rangi (GP)",
                       "klass": "Outpatient / GP consult", "source_system": "Medtech PMS"},
@@ -411,7 +454,8 @@ def seed_claims():
     })
     # 3) LODGED / ACCEPTED — grid read-only; edit via post-lodgement diagnosis change in the Review tab.
     c3 = _merge(_base("IO16456"), {
-        "status": "accepted", "decision": "Accepted", "created": date.today() - timedelta(days=9),
+        "status": "accepted", "decision": "Accepted",
+        "created": date.today() - timedelta(days=9), "lodged_on": date.today() - timedelta(days=9),
         "patient": {"pas_id": "PAS-51188", "given": "Sina", "family": "Faleolo", "dob": "1998-02-27",
                     "nhi": "NBW7712", "mobile": "022 909 3312", "address": "5 Harakeke Street, Christchurch 8025"},
         "employment": {"status": "Employee", "occupation": "Chef", "employer": "Harbourview Restaurant"},
@@ -426,7 +470,8 @@ def seed_claims():
     })
     # 4) DECLINED — needs repair and the edit window is closing (2 days left).
     c4 = _merge(_base("IO16450"), {
-        "status": "declined", "decision": "Declined", "created": date.today() - timedelta(days=12),
+        "status": "declined", "decision": "Declined",
+        "created": date.today() - timedelta(days=12), "lodged_on": date.today() - timedelta(days=12),
         "patient": {"pas_id": "PAS-33902", "given": "Tomasi", "family": "Vaka", "dob": "1988-09-14",
                     "nhi": "PLR5521", "mobile": "021 700 4412", "address": "88 Rata Street, Christchurch 8011"},
         "employment": {"status": "Employee", "occupation": "Courier driver", "employer": "FastParcel NZ"},
@@ -438,7 +483,8 @@ def seed_claims():
     })
     # 5) EXPIRED — outside the 14-day window; read-only / archived (16 days old).
     c5 = _merge(_base("IO16445"), {
-        "status": "accepted", "decision": "Accepted", "created": date.today() - timedelta(days=16),
+        "status": "accepted", "decision": "Accepted",
+        "created": date.today() - timedelta(days=16), "lodged_on": date.today() - timedelta(days=16),
         "patient": {"pas_id": "PAS-21847", "given": "Grace", "family": "Wilson", "dob": "1962-01-30",
                     "nhi": "QDF3390", "mobile": "027 118 2244", "address": "3 Miro Place, Christchurch 8042"},
         "employment": {"status": "Retired", "occupation": "", "employer": ""},
@@ -465,8 +511,24 @@ if "claims" not in st.session_state:
     st.session_state.seq = 16457          # new claims continue after the seeded refs
     st.session_state.claims = seed_claims()
     st.session_state.active = None
-    st.session_state.role = "prescriber"
+    st.session_state.role = "clinical"
     st.session_state.tab = "admin"        # active workspace tab
+    # Synthesise an attributed, multi-author audit trail for the sample claims so the
+    # audit view has history to inspect (each save is versioned + attributed).
+    for _c in st.session_state.claims:
+        if cx.persistence.versions(_c["reference"]):
+            continue  # store is process-global; don't re-seed history on new sessions
+        cx.persistence.save(_c, "R. Patel", "clerical", "claim created")
+        if _c["consent"]["given"]:
+            cx.persistence.save(_c, "R. Patel", "clerical", "patient details & consent recorded")
+        if _c["diagnoses"]:
+            cx.persistence.save(_c, "Dr A. Rangi", "clinical", "diagnoses & clinical assessment added")
+        if _c["declaration"]["made"]:
+            cx.persistence.save(_c, "Dr A. Rangi", "clinical", "Part E declaration signed")
+        if is_submitted(_c):
+            cx.persistence.save(_c, "Dr A. Rangi", "clinical", "lodged ACC45")
+        if _c.get("decision") in ("Accepted", "Held", "Declined"):
+            cx.persistence.save(_c, "ACC (system)", "acc", f'ACC decision: {_c["decision"]}')
 
 st.markdown(CSS, unsafe_allow_html=True)
 
@@ -496,6 +558,7 @@ def add_diagnosis_dialog(c):
     if st.button("Add to claim", type="primary"):
         c["diagnoses"].append({"id": uid(), "code": sel["code"], "display": sel["display"], "site": sel["site"],
                                "side": side, "acc": sel["acc"], "primary": len(c["diagnoses"]) == 0, "status": "draft"})
+        audit_save(c, f'diagnosis added ({sel["code"]})')
         st.rerun()
 
 
@@ -528,20 +591,20 @@ def change_request_dialog(c):
         c["diagnoses"].append({"id": uid(), "code": sel["code"], "display": sel["display"], "site": sel["site"],
                                "side": side, "acc": sel["acc"], "primary": False, "status": "change_pending",
                                "source_request": req["id"]})
-        cx.audit.record(st.session_state.role, "diagnosis_change_request", f'{c["reference"]}: +{sel["code"]}')
+        audit_save(c, f'diagnosis change request (+{sel["code"]})')
         st.rerun()
 
 
 # --------------------------------------------------------------------------
 # panels
 # --------------------------------------------------------------------------
-_ROW_W = [1.05, 1.7, 1.75, 1.1, 1.5, 0.75]
-_ROW_HEAD = ["ACC45 NO.", "PATIENT", "STATUS", "ACCIDENT", "EDIT WINDOW", ""]
+_ROW_W = [1.05, 1.7, 1.75, 1.1, 1.55, 0.75]
 
 
-def _row_header():
+def _row_header(kind="submitted"):
+    last = "LODGE BY" if kind == "unsubmitted" else "REPAIR WINDOW"
     h = st.columns(_ROW_W)
-    for col, t in zip(h, _ROW_HEAD):
+    for col, t in zip(h, ["ACC45 NO.", "PATIENT", "STATUS", "ACCIDENT", last, ""]):
         col.markdown(f'<div class="sec" style="margin:0">{t}</div>', unsafe_allow_html=True)
 
 
@@ -559,7 +622,7 @@ def _submission_row(c, kind="submitted"):
         dec = f' <span class="mono">{c["decision"]}</span>' if c.get("decision") else ""
         cols[2].markdown(status_pill(c["status"]) + dec, unsafe_allow_html=True)
     cols[3].write(str(c["accident"]["adate"] or "—"))
-    cols[4].markdown(window_pill(c), unsafe_allow_html=True)
+    cols[4].markdown(lodgement_note(c) if kind == "unsubmitted" else window_pill(c), unsafe_allow_html=True)
     if cols[5].button("Open" if not read_only else "View", key="open_" + c["id"]):
         st.session_state.active = c["id"]
         st.session_state.tab = "admin" if kind == "unsubmitted" else "review"
@@ -567,24 +630,25 @@ def _submission_row(c, kind="submitted"):
 
 
 def dashboard():
-    user = cx.auth.current_user(st.session_state.get("role", "prescriber"))
+    user = cx.auth.current_user(st.session_state.get("role", "clinical"))
     html('<div class="apphdr">'
          '<span class="brand">Health New Zealand <span style="font-weight:400;opacity:.75">| Te Whatu Ora</span></span>'
          '<span class="sub">ACC Claim Console · research mockup</span><span class="grow"></span>'
          f'<span class="sub">{user["name"]} · {user["role_label"]}</span></div>')
 
-    # per-user working set
-    mine = [c for c in st.session_state.claims if c.get("created_by") == user["name"]]
-    active = sorted([c for c in mine if not is_expired(c)], key=days_left)
-    expired = sorted([c for c in mine if is_expired(c)], key=lambda c: c.get("created") or date.today())
+    # clerical + clinical share the practice working set
+    mine = st.session_state.claims
 
-    st.markdown("#### My ACC submissions")
-    st.caption("ACC45 referrals are kept here for **14 days** for update, revision or repair. "
-               "After that they drop off your active list (read-only below).")
+    st.markdown("#### ACC submissions")
+    st.caption("Unsubmitted referrals have no edit clock — but ACC should be lodged **within 12 months** of the "
+               "accident (later needs supporting records). Once **submitted**, a referral stays editable for "
+               "**14 days** for update, revision or repair, then drops off (read-only).")
 
     # panes
-    unsubmitted = sorted([c for c in active if c["status"] in ("draft", "ready")], key=days_left)
-    submitted = sorted([c for c in active if c["status"] in ("lodged", "accepted", "held", "declined")], key=days_left)
+    unsubmitted = sorted([c for c in mine if c["status"] in ("draft", "ready")],
+                         key=lambda c: (days_since_accident(c) is None, -(days_since_accident(c) or 0)))
+    submitted = sorted([c for c in mine if is_submitted(c) and not is_expired(c)], key=days_left)
+    expired = sorted([c for c in mine if is_expired(c)], key=lambda c: c.get("lodged_on") or date.today())
 
     # summary metrics
     ready_to_lodge = sum(1 for c in unsubmitted if readiness(c)[0] == "ready")
@@ -601,35 +665,36 @@ def dashboard():
     if st.button("➕ New ACC45 claim (from PMS encounter)", type="primary"):
         c = new_claim()
         st.session_state.claims.append(c)
+        audit_save(c, "claim created")
         st.session_state.active = c["id"]
         st.session_state.tab = "admin"
         st.rerun()
 
-    # 1) UNSUBMITTED — drafts & ready to lodge; STATUS = next step to lodge
+    # 1) UNSUBMITTED — drafts & ready to lodge; STATUS = next step to lodge; LODGE BY = 12-month timeliness
     with st.container(border=True):
         sec("Unsubmitted · drafts &amp; ready to lodge")
         if not unsubmitted:
             st.caption("Nothing unsubmitted.")
         else:
-            _row_header()
+            _row_header("unsubmitted")
             for c in unsubmitted:
                 _submission_row(c, kind="unsubmitted")
 
-    # 2) SUBMITTED — lodged/decided, still inside the 14-day update/revision/repair window
+    # 2) SUBMITTED — lodged/decided, still inside the 14-day post-lodgement repair window
     with st.container(border=True):
         sec("Submitted · within 14-day update / revision / repair window")
         if not submitted:
             st.caption("Nothing submitted in the last 14 days.")
         else:
-            _row_header()
+            _row_header("submitted")
             for c in submitted:
                 _submission_row(c, kind="submitted")
 
-    # 3) EXPIRED — read-only (past the 14-day window)
+    # 3) EXPIRED — read-only (past the 14-day repair window)
     if expired:
-        with st.expander(f"Expired — read-only (past 14-day window) · {len(expired)}"):
-            st.caption("The 14-day update/revision/repair window has closed. Shown for reference only.")
-            _row_header()
+        with st.expander(f"Expired — read-only (past 14-day repair window) · {len(expired)}"):
+            st.caption("The 14-day post-lodgement update/revision/repair window has closed. Shown for reference only.")
+            _row_header("submitted")
             for c in expired:
                 _submission_row(c, kind="expired")
 
@@ -684,7 +749,7 @@ def admin_panel(c):
                 st.caption("3-question script: (1) collect/use/disclose, (2) true & correct, (3) authorise lodgement.")
                 if st.button("Record patient consent (all three = Yes)", type="primary"):
                     c["consent"] = {"given": True, "at": datetime.now().strftime("%d/%m/%Y %H:%M")}
-                    cx.audit.record(st.session_state.role, "consent_recorded", c["reference"])
+                    audit_save(c, "consent recorded")
                     st.rerun()
 
     with st.container(border=True):
@@ -750,6 +815,7 @@ def clinician_panel(c):
                         r[0].markdown(f'{d["display"]} <span class="mono">{d["code"]}</span>', unsafe_allow_html=True)
                         if r[1].button("Remove", key="del_" + d["id"]):
                             c["diagnoses"] = [x for x in c["diagnoses"] if x["id"] != d["id"]]
+                            audit_save(c, f'diagnosis removed ({d["code"]})')
                             st.rerun()
         else:
             html('<div class="bnr err">✱ At least one injury diagnosis is needed.</div>')
@@ -799,7 +865,7 @@ def clinician_panel(c):
         sec("Practitioner declaration · ACC45 Part E")
         if not is_prescriber:
             html('<div class="bnr warn">🔒 <b>Part E is restricted to doctors and nurse practitioners.</b> '
-                 'Switch role to a prescriber in the sidebar to sign, or route to an eligible colleague.</div>')
+                 'Switch to the clinical role in the sidebar to sign, or route to an eligible colleague.</div>')
         st.caption("I certify I have personally examined the patient, the condition results from an accident, "
                    "and the patient authorised me to lodge this claim.")
         dec = c["declaration"]
@@ -817,7 +883,7 @@ def clinician_panel(c):
                     dec["by"] = cx.auth.current_user(st.session_state.role)["name"]
                     if not dec["provider_no"]:
                         dec["provider_no"] = cx.hpi.default_provider_number()
-                    cx.audit.record(st.session_state.role, "part_e_declaration", c["reference"])
+                    audit_save(c, "Part E declaration signed")
                     st.rerun()
 
 
@@ -909,6 +975,7 @@ def render_summary(c):
 
 
 def review_panel(c):
+    role = st.session_state.get("role", "clinical")
     errs, warns, can = validate(c)
     with st.container(border=True):
         sec("Lodgement readiness")
@@ -920,15 +987,19 @@ def review_panel(c):
         if warns:
             html('<div class="bnr warn"><b>Warnings (non-blocking):</b><ul>'
                  + "".join(f"<li>{w}</li>" for w in warns) + "</ul></div>")
-        if c["status"] in ("draft", "ready"):
+        if c["status"] in ("draft", "ready") and not cx.auth.can_submit(role):
+            html('<div class="bnr warn">🔒 Your <b>clerical</b> role can prepare and review this claim but cannot '
+                 'submit it. A clinician lodges the ACC45.</div>')
+        elif c["status"] in ("draft", "ready"):
             expired = is_expired(c)
             lc = st.columns([2, 3])
             if lc[0].button("Complete & lodge ACC45", type="primary", disabled=(not can or expired), use_container_width=True):
                 for d in c["diagnoses"]:
                     d["status"] = "lodged"
                 c["status"] = "lodged"
+                c["lodged_on"] = date.today()  # starts the 14-day repair window
                 c["decision"] = cx.acc.lodge(c)  # ACC eLodgement (stub)
-                cx.audit.record(st.session_state.role, "lodge_acc45", c["reference"])
+                audit_save(c, "lodged ACC45")
                 cx.notification.send_decision_sms(c["patient"]["mobile"], c["reference"], c["decision"])
                 st.rerun()
             lc[1].caption("Edit window expired — cannot lodge." if expired
@@ -947,17 +1018,20 @@ def review_panel(c):
                 d1, d2, d3, _ = st.columns([1, 1, 1, 4])
                 if d1.button("Accepted"):
                     c["status"] = "accepted"; c["decision"] = cx.acc.decision("Accepted")
-                    cx.audit.record(st.session_state.role, "acc_decision", f'{c["reference"]}: Accepted'); st.rerun()
+                    audit_save(c, "ACC decision: Accepted"); st.rerun()
                 if d2.button("Held"):
                     c["status"] = "held"; c["decision"] = cx.acc.decision("Held")
-                    cx.audit.record(st.session_state.role, "acc_decision", f'{c["reference"]}: Held'); st.rerun()
+                    audit_save(c, "ACC decision: Held"); st.rerun()
                 if d3.button("Declined"):
                     c["status"] = "declined"; c["decision"] = cx.acc.decision("Declined")
-                    cx.audit.record(st.session_state.role, "acc_decision", f'{c["reference"]}: Declined'); st.rerun()
+                    audit_save(c, "ACC decision: Declined"); st.rerun()
 
             sec("Post-lodgement diagnosis changes")
-            if st.button("➕ Add / change diagnosis (post-lodgement)", type="primary"):
-                change_request_dialog(c)
+            if cx.auth.can_edit_clinical(role):
+                if st.button("➕ Add / change diagnosis (post-lodgement)", type="primary"):
+                    change_request_dialog(c)
+            else:
+                st.caption("Post-lodgement diagnosis changes are a clinical action (clinician role).")
 
             if c["change_requests"]:
                 rows = ""
@@ -996,13 +1070,110 @@ def workspace(c):
                                type="primary" if is_active else "secondary"):
                 st.session_state.tab = key
                 st.rerun()
+    role = st.session_state.get("role", "clinical")
     active = st.session_state.get("tab", "admin")
     if active == "admin":
         admin_panel(c)
     elif active == "clin":
-        clinician_panel(c)
+        if cx.auth.can_edit_clinical(role):
+            clinician_panel(c)
+        else:
+            clinical_readonly_view(c)
     else:
         review_panel(c)
+
+
+def clinical_readonly_view(c):
+    """Clinician tab rendered read-only for the clerical role (view, not edit)."""
+    html('<div class="bnr info">👁 <b>Clinical section — read-only.</b> Your clerical role can view but not edit '
+         'the clinical assessment; a clinician completes and signs it.</div>')
+    fl, cap, dec = c["flags"], c["capacity"], c["declaration"]
+    with st.container(border=True):
+        sec("Injury diagnosis &amp; assistance · Part C")
+        html(dx_table(c["diagnoses"]) if c["diagnoses"] else '<span class="pill err">No diagnoses entered</span>')
+        html('<div class="chips">'
+             f'<span class="kv">Gradual process <b>{fl["gradual"]}</b></span>'
+             f'<span class="kv">Treatment injury <b>{fl["treatment"]}</b></span>'
+             f'<span class="kv">Admitted <b>{fl["admitted"]}</b></span>'
+             f'<span class="kv">Home assistance <b>{fl["home"]}</b></span></div>')
+    with st.container(border=True):
+        sec("Ability to work · Part D / ACC18")
+        html('<div class="chips">'
+             f'<span class="kv">Exertion <b>{cap["exertion"] or "—"}</b></span>'
+             f'<span class="kv">Capacity <b>{cap["state"] or "—"}</b></span>'
+             f'<span class="kv">Certificate <b>{cap["cert_type"]}</b></span>'
+             f'<span class="kv">Valid <b>{cap["valid_from"] or "—"} → {cap["valid_to"] or "—"}</b></span></div>')
+        restr = cap["restrictions"] or cap["justification"]
+        if restr:
+            html(f'<div class="kv" style="display:block;margin-top:4px">{restr}</div>')
+    with st.container(border=True):
+        sec("Practitioner declaration · Part E")
+        if dec["made"]:
+            html(f'<span class="pill ok">Declaration made</span> <span class="kv">{dec["date"]} · {dec["by"]}</span>')
+        else:
+            html('<span class="pill err">Declaration not completed</span>')
+
+
+def inspect_view(c):
+    """Audit read-only inspection: full summary + attributed audit trail."""
+    if st.columns([1, 6])[0].button("← Back to audit", use_container_width=True):
+        st.session_state.active = None
+        st.rerun()
+    html('<div class="apphdr"><span class="brand" style="font-size:13px">Audit · Inspect</span>'
+         f'<span class="ref">{c["reference"]}</span>{status_pill(c["status"])}'
+         f'<span class="sub">{c["patient"]["given"]} {c["patient"]["family"]} · '
+         f'NHI {c["patient"]["nhi"] or "—"} · created by {c.get("created_by", "—")}</span>'
+         '<span class="grow"></span><span class="sub">read-only</span></div>')
+    render_summary(c)
+    with st.container(border=True):
+        sec("Audit trail · attributed change history")
+        versions = cx.persistence.versions(c["reference"])
+        if not versions:
+            st.caption("No recorded changes for this claim.")
+        else:
+            rows = "".join(
+                f'<tr><td>v{e["version"]}</td><td>{e["ts"].replace("T", " ")}</td>'
+                f'<td>{e["author"]}</td><td><span class="pill">{e["role"]}</span></td><td>{e["action"]}</td></tr>'
+                for e in versions)
+            html('<table class="tbl"><thead><tr><th>Ver</th><th>When</th><th>Author</th><th>Role</th>'
+                 f'<th>Action</th></tr></thead><tbody>{rows}</tbody></table>')
+
+
+def audit_dashboard():
+    html('<div class="apphdr">'
+         '<span class="brand">Health New Zealand <span style="font-weight:400;opacity:.75">| Te Whatu Ora</span></span>'
+         '<span class="sub">ACC Claim Console · Audit / Review</span><span class="grow"></span>'
+         f'<span class="sub">{cx.auth.current_user("audit")["name"]} · Audit</span></div>')
+    st.markdown("#### Audit · all ACC submissions")
+    st.caption("Search across **all** ACC45 referrals regardless of status or author. "
+               "Inspect gives a read-only summary and the attributed audit trail.")
+    q = st.text_input("Search by patient name or NHI", placeholder="e.g. Faleolo or NBW7712")
+    claims = st.session_state.claims
+    if q.strip():
+        ql = q.lower()
+        claims = [c for c in claims
+                  if ql in f'{c["patient"]["given"]} {c["patient"]["family"]}'.lower()
+                  or ql in (c["patient"]["nhi"] or "").lower()]
+    with st.container(border=True):
+        sec(f"All submissions · {len(claims)}")
+        if not claims:
+            st.caption("No matching claims.")
+        else:
+            w = [1.0, 1.55, 1.15, 1.3, 1.45, 0.75]
+            h = st.columns(w)
+            for col, t in zip(h, ["ACC45 NO.", "PATIENT", "NHI", "STATUS", "CREATED BY", ""]):
+                col.markdown(f'<div class="sec" style="margin:0">{t}</div>', unsafe_allow_html=True)
+            for c in claims:
+                cols = st.columns(w)
+                cols[0].markdown(f'<span class="mono" style="font-size:12.5px;color:var(--slate-700)">{c["reference"]}</span>',
+                                 unsafe_allow_html=True)
+                cols[1].write(f'{c["patient"]["given"]} {c["patient"]["family"]}')
+                cols[2].markdown(f'<span class="mono">{c["patient"]["nhi"] or "—"}</span>', unsafe_allow_html=True)
+                cols[3].markdown(status_pill(c["status"]), unsafe_allow_html=True)
+                cols[4].write(c.get("created_by", "—"))
+                if cols[5].button("Inspect", key="insp_" + c["id"]):
+                    st.session_state.active = c["id"]
+                    st.rerun()
 
 
 # --------------------------------------------------------------------------
@@ -1012,23 +1183,24 @@ with st.sidebar:
     st.markdown("### ACC Claim Console")
     st.caption("Health New Zealand | Te Whatu Ora · research mockup")
     st.divider()
-    roles = {"prescriber": "Dr A. Rangi — GP (prescriber)",
-             "limited": "J. Neho — Physiotherapist (limited)",
-             "admin": "R. Patel — Reception (admin)"}
+    roles = {"clerical": "R. Patel — Clerical / Reception",
+             "clinical": "Dr A. Rangi — Clinician",
+             "audit": "M. Chen — Audit / Review"}
     st.session_state.role = st.radio("Signed in as", list(roles.keys()),
                                      format_func=lambda r: roles[r],
                                      index=list(roles).index(st.session_state.role))
     st.caption("🔒 Sign-in is **simulated** (dev only). Production uses My Health Account "
                "Workforce (OIDC) via the auth connector.")
     st.divider()
-    st.caption("Try: switch to the physiotherapist to see Part E lock; add only a non-eligible code (e.g. "
-               "“Anxiety disorder”) to see the lodge block.")
+    st.caption("Roles: **clerical** edits admin, views clinical, can't submit · **clinical** does all · "
+               "**audit** sees all claims, searchable, read-only inspect with the audit trail.")
     with st.expander("Integration status (stubbed connectors)"):
         for name, mode in cx.CONNECTOR_MODE.items():
             st.caption(f"• {name} — {mode}")
 
+_role = st.session_state.get("role", "clinical")
 c = active_claim()
-if c is None:
-    dashboard()
+if cx.auth.is_audit(_role):
+    inspect_view(c) if c is not None else audit_dashboard()
 else:
-    workspace(c)
+    workspace(c) if c is not None else dashboard()
