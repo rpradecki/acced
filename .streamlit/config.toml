@@ -1,0 +1,10 @@
+# Theme aligned to the Health New Zealand | Te Whatu Ora digital brand palette.
+[theme]
+primaryColor = "#002E6E"            # HNZ deep blue (primary)
+backgroundColor = "#ffffff"         # white
+secondaryBackgroundColor = "#EEF4FA"  # HNZ light blue
+textColor = "#1A1F36"               # near-navy ink
+font = "sans serif"
+
+[server]
+headless = true

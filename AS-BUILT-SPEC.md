@@ -7,12 +7,14 @@ does* — data, rules, states, screens, copy, and design tokens — not *how the
 build is coded*. The reference implementation is a single-file Streamlit app
 (`app.py`); nothing here depends on Streamlit except Appendix C.
 
-**Companion documents.**
-- `../ACC-Claim-Lodgement-Product-Spec.md` — the product-level rationale and ACC domain rules.
-- `../ACC-FHIR-Terminology-Spec.md` — the real SNOMED/FHIR terminology binding (this app stubs it).
+**Companion documents (all in this repo).**
+- `ACC-Claim-Lodgement-Product-Spec.md` — the product-level rationale and ACC domain rules.
+- `ACC-FHIR-Terminology-Spec.md` — the real SNOMED/FHIR terminology binding (this app stubs it).
+- `PRODUCTION-READINESS.md` — Health NZ ecosystem gap analysis. `DATABASE-SCHEMA.md` — production DDL.
 
-**Nature of the build.** Front-end mockup. ACC lodgement and SNOMED terminology are
-**stubbed**; all state is **in-memory per session** (no database, no network). No real
+**Nature of the build.** Front-end mockup. ACC lodgement, SNOMED terminology, identity, and
+messaging are **stubbed** behind connectors (§13). Claim state is in-memory per session;
+an in-memory **attributed, versioned claim store** (§14) backs the audit trail. No real
 patient data, not for clinical use.
 
 ---
@@ -51,11 +53,10 @@ Behaviour:
 
 ## 3. Information architecture & navigation
 
-Two top-level views, switched by an in-memory `active_claim_id`:
+Top-level routing depends on **role** and whether a claim is open (`active_claim_id`):
 
-1. **Dashboard** (`active_claim_id` is null) — brand header, "New claim" action, and a
-   table of claims.
-2. **Workspace** (a claim is open) — claim header bar, a **3-tab nav**, and the active tab's panel.
+- **Clerical / Clinical:** **Dashboard** (no claim open) ↔ **Workspace** (claim open; claim header bar + 3-tab nav + active panel).
+- **Audit:** **Audit dashboard** (no claim open) ↔ read-only **Inspect** view (claim open). Audit never enters the editable Workspace.
 
 **Workspace tabs** (custom button nav; active tab = filled primary style):
 `📋 Administrative` · `🩺 Clinician` · `✅ Review & lodge`. Active tab stored in
@@ -66,8 +67,9 @@ Two top-level views, switched by an in-memory `active_claim_id`:
 - **Add diagnosis to lodged ACC45** (Change-in-Diagnosis) — opened from the Review tab when lodged.
 
 **Session/navigation state (in-memory):**
-`claims[]`, `active_claim_id`, `active_tab` (`admin|clin|review`), `role`
-(`prescriber|limited|admin`), `number_seq` (int, next ACC45 number).
+`claims[]`, `active_claim_id` (a.k.a. `active`), `active_tab` (`admin|clin|review`, default `admin`),
+`role` (`clerical|clinical|audit`, default `clinical`), `number_seq` (int, next ACC45 number).
+Plus a **process-global** attributed claim store + audit trail (§14).
 
 ---
 
@@ -152,6 +154,8 @@ optional `source_request` (id of the ChangeRequest that created it).
 - **Body side:** `Left`, `Right`, `Bilateral`, `N/A`.
 - **Yes/No controls** default to `No`: accident `workplace`/`vehicle`/`sporting`; flags `gradual`/`treatment`/`admitted`/`home`.
 - **Status → label** mapping: `draft`→"Draft", `ready`→"Ready to lodge", `lodged`→"Lodged", `accepted`→"Accepted", `held`→"Held", `declined`→"Declined".
+- **Roles (actor):** `clerical`, `clinical`, `audit` (machine-authored audit entries also use `system`/`acc`).
+- **Diagnosis status:** `draft`, `lodged`, `accepted`, `change_pending` (+ `superseded`/`declined` reserved).
 
 ---
 
@@ -186,18 +190,24 @@ Search = case-insensitive substring match on `display` **or** `code`. The picker
 
 ### 6.2 Seeded sample claims (present on first load)
 
-Three editable claims demonstrate each state. `number_seq` starts at **16457** so new
-claims never collide with the seeded references.
+**Six** claims demonstrate every dashboard state. `number_seq` starts at **16457** so new
+claims never collide with the seeded references. Dates are **relative to today** (so the
+demo is stable): `created`/`lodged_on` are `today − N days` as noted, driving the window
+pills. Each seeded claim is also given an attributed audit history (§14) on first load.
 
-| ref | patient | status | key data |
-|---|---|---|---|
-| `IO16452` | Aroha Ngata (1991-06-02, NHI KLP2286) | `draft` | Employee, warehouse; Work accident 2026-07-06 14:20, "lifting a box off a pallet – felt sudden shoulder pain"; consent given; dx 209815008 Right (primary). No certification/declaration yet. |
-| `IO16454` | David Thorne (1974-11-19, NHI MTR9043) | `ready` | Self-employed builder; Home accident 2026-07-07 09:05, "slipped off a step ladder – landed awkwardly on left ankle"; consent given; dx 283384001 Left; capacity **Fit for selected work** (restrictions text), ACC18 valid 2026-07-07→21; declaration made (HP-44921). Fully valid → lodgeable. |
-| `IO16456` | Sina Faleolo (1998-02-27, NHI NBW7712) | `accepted` | Employee chef; Work accident 2026-06-30 19:45, "slipped on wet kitchen floor – put out right hand to break the fall"; consent given; dx 20946005 Right (status `accepted`); capacity **Fully unfit** (justification), ACC18 valid 2026-06-30→07-28; declaration made. Lodged & accepted. |
+| ref | patient | status | ages (N days ago) | pane | key data |
+|---|---|---|---|---|---|
+| `IO16453` | Hemi Walker (2001-05-08, NHI RTK1180) | `draft` | created 0 | Unsubmitted — **Admin step needed** | Patient from PMS; accident date/cause + consent not yet done; no diagnosis. |
+| `IO16452` | Aroha Ngata (1991-06-02, NHI KLP2286) | `draft` | created 3 | Unsubmitted — **Clinician info needed** | Employee; Work accident, shoulder; consent given; dx 209815008 Right (primary). No capacity/declaration. |
+| `IO16454` | David Thorne (1974-11-19, NHI MTR9043) | `ready` | created 1 | Unsubmitted — **Ready to lodge** | Self-employed builder; Home accident, ankle; dx 283384001 Left; **Fit for selected work** (restrictions); declaration made. Fully valid. |
+| `IO16450` | Tomasi Vaka (1988-09-14, NHI PLR5521) | `declined` | created/lodged 12 | Submitted — **needs repair, 2 days left** | Employee courier; Road/vehicle; dx 44465007 neck; declaration made. Declined by ACC. |
+| `IO16456` | Sina Faleolo (1998-02-27, NHI NBW7712) | `accepted` | created/lodged 9 | Submitted — 5 days left | Employee chef; Work accident, wrist; dx 20946005 Right (`accepted`); **Fully unfit** (justification). |
+| `IO16445` | Grace Wilson (1962-01-30, NHI QDF3390) | `accepted` | created/lodged 16 | **Expired** (read-only) | Retired; Home accident, wrist; dx 20946005 Right. Past the 14-day repair window. |
 
 Default encounter for new/seed claims: facility `Riverside Medical Centre`, provider
 `Dr A. Rangi (GP)`, class `Outpatient / GP consult`, source system `Medtech PMS`,
-`external_id` = `ENC-` + random 6 digits.
+`external_id` = `ENC-` + random 6 digits. New claims (via the button) prefill patient
+**Margaret Ellery** (1949-03-11, NHI JBX4728).
 
 ---
 
@@ -205,8 +215,8 @@ Default encounter for new/seed claims: facility `Riverside Medical Centre`, prov
 
 ### 7.1 Create claim (Dashboard → "New ACC45 claim (from PMS encounter)")
 - Allocate `reference` = `"IO" + number_seq`, then `number_seq += 1`. `number_source = acc_allocation_api`.
-- Simulate a PMS encounter (new `external_id`) and prefill the patient (default sample: Margaret Ellery, DOB 1949-03-11, NHI JBX4728). `status = draft`.
-- Open the claim (set `active_claim_id`), land on the Administrative tab.
+- Simulate a PMS encounter (new `external_id`) and prefill the patient (default sample: Margaret Ellery, DOB 1949-03-11, NHI JBX4728). `status = draft`, `created = today`, `created_by = current user`, `lodged_on = null`.
+- Persist an attributed "claim created" audit entry; open the claim (set `active_claim_id`), land on the Administrative tab.
 
 ### 7.2 ACC number allocation
 Sequential from `number_seq`; stored as an **opaque string** (do not hard-code a format
@@ -249,17 +259,19 @@ Four Yes/No controls. Contextual banners when set to `Yes`:
 - If `state` ∈ {selected work, fully unfit}: info caption about possible weekly compensation eligibility.
 
 ### 7.8 Practitioner declaration (Clinician, Part E)
-- If role ≠ `prescriber`: disable the provider-number field and the sign button; show a
-  warn banner: *"🔒 Part E is restricted to doctors and nurse practitioners…"*.
-- On "Complete declaration (Today)": set `made=true`, `date=today`, `by="Dr A. Rangi"`,
-  and default `provider_no` to `HP-44921` if empty. Show green confirmation with date/signer.
+- Enabled only when the role can sign Part E (**clinical**). Otherwise disable the
+  provider-number field and sign button and show a warn banner: *"🔒 Part E is restricted
+  to doctors and nurse practitioners. Switch to the clinical role in the sidebar to sign…"*.
+- On "Complete declaration (Today)": set `made=true`, `date=today`, `by=` the signer's name
+  (from auth), default `provider_no` to the HPI default (`HP-44921`) if empty; persist an
+  attributed audit entry ("Part E declaration signed"). Show green confirmation.
 
 ### 7.9 Lodgement (Review tab)
 - Run **validation** (§8). Show a readiness card: green "ready to lodge" or a red list of blocking errors; a warn list for non-blocking warnings.
-- **"Complete & lodge ACC45"** is **disabled** unless validation passes (`can_lodge`).
-  On lodge: set every diagnosis `status="lodged"`, claim `status="lodged"`, `decision="Received"`.
-- After lodge, a **Simulate ACC decision** control (Accepted/Held/Declined) sets
-  `status` and `decision` accordingly (accepted/held/declined).
+- **Role gate:** only a role that can submit (**clinical**) sees the lodge control. Clerical instead sees a warn notice: *"Your clerical role can prepare and review this claim but cannot submit it. A clinician lodges the ACC45."*
+- **"Complete & lodge ACC45"** is **disabled** unless validation passes (`can_lodge`) **and** the claim is not expired.
+  On lodge: set every diagnosis `status="lodged"`, claim `status="lodged"`, `lodged_on=today` (starts the 14-day repair window), `decision=` the ACC connector's acknowledgement (`"Received"`); persist an attributed audit entry ("lodged ACC45"); fire the stubbed decision SMS.
+- After lodge, a **Simulate ACC decision** control (Accepted/Held/Declined) sets `status`/`decision` and persists an attributed audit entry.
 
 ### 7.10 Post-lodgement diagnosis change (Review → dialog)
 - Only when lodged. Info banner explains it's a **Change-in-Diagnosis request** (not a
@@ -268,7 +280,15 @@ Four Yes/No controls. Contextual banners when set to `Yes`:
   **same-event** checkbox (required to submit), "attach to ACC18" checkbox (default on).
 - If same-event unchecked: warn to lodge a new ACC45 instead; submit disabled.
 - On submit: append a ChangeRequest (`kind=add`, `status=submitted`, `bundled` per toggle),
-  and append a Diagnosis with `status=change_pending` linked via `source_request`.
+  and append a Diagnosis with `status=change_pending` linked via `source_request`; persist
+  an attributed audit entry. Only the **clinical** role sees this action (clerical sees a
+  "clinical action" note).
+
+### 7.11 Role-based access & attribution
+- **Clerical:** edits Administrative + consent; Clinician tab renders **read-only** (view only, banner); Review shows the summary but **no lodge** (see 7.9); post-lodgement changes hidden.
+- **Clinical:** full edit + sign Part E + lodge + post-lodgement changes.
+- **Audit:** no Workspace; uses the Audit dashboard + Inspect (9.7 / 9.8).
+- **Attribution:** every meaningful action — *claim created, consent recorded, diagnosis added/removed, Part E signed, lodged, ACC decision, diagnosis-change request* — persists an attributed, versioned save (author name + role) to the store, feeding the audit trail (§14).
 
 ---
 
@@ -304,13 +324,13 @@ server-side at lodge so a stale client cannot bypass the gate.
 
 ## 9. Screen specifications
 
-### 9.1 Dashboard — "My ACC submissions" (per-user, 14-day window)
-The dashboard is the individual user's submission workspace, scoped to `created_by ==
-current user`, and organised around the **14-day edit/revision/repair window**
-(`EDIT_WINDOW_DAYS = 14`).
+### 9.1 Dashboard — "ACC submissions" (clerical & clinical; two panes + expired)
+The clerical/clinical dashboard shows the **shared practice working set** (all claims —
+not per-user), organised around the **14-day post-lodgement repair window**
+(`EDIT_WINDOW_DAYS = 14`, `LODGE_LIMIT_DAYS = 365`).
 
 - Brand header bar with the signed-in user + role.
-- Heading **"My ACC submissions"** and a note that referrals are kept 14 days for update/revision/repair, then drop off the active list.
+- Heading **"ACC submissions"** with a note: unsubmitted referrals have no edit clock but should be lodged within **12 months** of the accident; once **submitted**, editable for **14 days** for update/revision/repair, then read-only.
 - **Summary metric strip:** Unsubmitted · Ready to lodge · Submitted (14-day) · Needs repair (red when >0) · Expiring ≤3 days (amber when >0).
 - Primary button **"➕ New ACC45 claim (from PMS encounter)"**.
 
@@ -348,18 +368,30 @@ that appears only when *Sporting injury? = Yes* — required in that case; cause
 Cards: **Context** (chip strip of patient/accident/scene/consent + cause); **Injury
 diagnosis & assistance · Part C** (summary chip, Add button or lodged read-only note,
 diagnosis table, eligibility banners, remove expander); **Clinical flags**; **Ability to
-work · Part D / ACC18**; **Practitioner declaration · Part E** (role-gated).
+work · Part D / ACC18**; **Practitioner declaration · Part E** (role-gated). For the
+**clerical** role the whole tab renders **read-only** (a compact view of Parts C/D/E) with
+a "Clinical section — read-only" banner; editing is clinical-only.
 
 ### 9.5 Review & lodge tab (in this order)
-1. **Lodgement readiness** card (errors/warnings + lodge button when draft/ready).
+1. **Lodgement readiness** card (errors/warnings; lodge button when draft/ready **and** the role can submit — clerical sees a "cannot submit" notice instead).
 2. **Full ACC45 summary** (§10) — appears directly under readiness, for every state.
 3. **Post-lodgement** card — only when lodged: lodged banner + decision, Simulate ACC
-   decision buttons (while `lodged`), "Add / change diagnosis (post-lodgement)" action,
-   and a change-requests table.
+   decision buttons (while `lodged`), the "Add / change diagnosis (post-lodgement)" action
+   (**clinical** only; clerical sees a note), and a change-requests table.
 
 ### 9.6 Dialogs
 - **Add diagnosis:** scope toggle, search, result select, eligibility banner, body-side radio, "Add to claim".
 - **Add diagnosis to lodged ACC45:** info banner, search/select, body-side, read-only accident date, reason, same-event checkbox (required), attach-to-ACC18 checkbox, "Submit change request".
+
+### 9.7 Audit dashboard (audit role)
+- Brand header (Audit / Review) + heading **"Audit · all ACC submissions"**.
+- **Search box** — filters all claims by patient name **or** NHI (case-insensitive substring).
+- Table of **every** claim (all statuses/authors): `ACC45 no.`, `Patient`, `NHI`, `Status`, `Created by`, and an **Inspect** button per row → opens the Inspect view.
+
+### 9.8 Inspect view (audit role, read-only)
+- "← Back to audit" button; header with reference, status, patient, NHI, created-by, and a "read-only" tag.
+- The **full ACC45 summary** (§10), read-only.
+- **Audit trail** card — "Audit trail · attributed change history" table: `Ver | When | Author | Role | Action`, oldest-first (from the store's `versions(reference)`; see §14).
 
 ---
 
@@ -419,7 +451,7 @@ identity brand guidelines.
 
 A replicated build should pass all of these (mirrors the reference test suite):
 
-1. **Seed load:** three claims appear — `IO16452` (draft), `IO16454` (ready), `IO16456` (accepted).
+1. **Seed load:** six claims appear — `IO16453` + `IO16452` (draft/unsubmitted), `IO16454` (ready), `IO16450` (declined), `IO16456` (accepted), `IO16445` (accepted, expired). Unsubmitted split by readiness (Admin step / Clinician info / Ready to lodge).
 2. **Create:** "New claim" allocates the next `IO#####`, opens the workspace on the Administrative tab.
 3. **Tabs:** three visible, readable tabs; clicking switches the panel; the active tab is visually distinct and legible.
 4. **Eligibility gate — block:** a claim whose only diagnosis is non-eligible (e.g. `183932001` Presentation for social reasons) is **not lodgeable**; the readiness list contains "At least one ACC-eligible diagnosis is required to lodge." and the lodge button is disabled.
@@ -427,7 +459,7 @@ A replicated build should pass all of these (mirrors the reference test suite):
 6. **Lodge:** lodging flips status to `lodged`, sets `decision=Received`, marks diagnoses `lodged`, and reveals the post-lodgement change action.
 7. **Read-only after lodge:** the Clinician diagnosis grid is read-only once lodged.
 8. **Post-lodgement change:** requires same-event; on submit, creates a ChangeRequest and a `change_pending` diagnosis row.
-9. **Role gate:** switching to `limited` disables the Part E declaration with an explanatory banner.
+9. **Part E signer gate:** the Part E declaration can be signed only by the **clinical** role; for clerical/audit the sign control is disabled with an explanatory banner.
 10. **Review summary:** the Review tab shows the full ACC45 summary (all Part A–E sections with entered values) directly under Lodgement readiness, in every claim state.
 11. **Layout:** the app header and controls are not obscured by the top chrome.
 12. **14-day window:** submitted referrals show a post-lodgement repair countdown; ≤3 days from expiry shows a red pill and counts in "Expiring ≤3 days"; past 14 days a referral is read-only in the Expired section. Unsubmitted referrals show 12-month lodgement timeliness, not an edit clock.
@@ -503,6 +535,9 @@ reads of patient data too, and retain per records-management policy (see PRODUCT
 §G/§H). The store is process-global in the stub; a real build is a concurrency-safe DB in an
 approved NZ region with optimistic locking.
 
+**Full schema:** a production-oriented PostgreSQL schema (DDL, ERD, indexes, immutability,
+privacy/residency, and the mapping back to the app model) is in **`DATABASE-SCHEMA.md`**.
+
 ---
 
 ## Appendix A — State transitions
@@ -520,8 +555,10 @@ The verbatim strings a replica must reproduce live in: §7 (banners), §8 (valid
 messages), §9 (labels), §10 (summary section titles). Treat them as fixed content.
 
 ## Appendix C — Reference implementation (non-normative)
-Single-file **Streamlit** app (`app.py`): state in `st.session_state`; tabs built from
-buttons (not `st.tabs`) for reliability; dialogs via `st.dialog`; a Tailwind-style CSS
-layer injected via `st.markdown` carrying the tokens in §11. Deploys on Streamlit
-Community Cloud from GitHub (`requirements.txt`: `streamlit>=1.37`). None of this is
-required to replicate — any stack that satisfies §§2–12 is conformant.
+**Streamlit** app: `app.py` (UI + logic) + `connectors.py` (external seams §13, incl. the
+attributed store §14). State in `st.session_state`; tabs built from buttons (not `st.tabs`)
+for reliability; dialogs via `st.dialog`; a Tailwind-style CSS layer injected via
+`st.markdown` carrying the tokens in §11. Deploys on Streamlit Community Cloud from GitHub
+(`requirements.txt`: `streamlit>=1.37`). Companion docs in the repo: `PRODUCTION-READINESS.md`
+(gap analysis), `DATABASE-SCHEMA.md` (production DDL). None of this is required to replicate —
+any stack that satisfies §§2–14 is conformant.

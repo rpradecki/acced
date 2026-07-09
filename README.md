@@ -67,8 +67,11 @@ git push -u origin main
 | `requirements.txt` | `streamlit>=1.37` (needs `st.dialog`). |
 | `.streamlit/config.toml` | Theme + headless server. |
 | `.gitignore` | Excludes venv, caches, secrets. |
-| `AS-BUILT-SPEC.md` | Build-agnostic spec to replicate the app on any stack. |
+| `AS-BUILT-SPEC.md` | **Authoritative** build-agnostic spec to replicate the app on any stack. |
+| `ACC-Claim-Lodgement-Product-Spec.md` | Product-level rationale & ACC domain rules. |
+| `ACC-FHIR-Terminology-Spec.md` | SNOMED/FHIR terminology binding (stubbed in the app). |
 | `PRODUCTION-READINESS.md` | Gap analysis for deploying into the Health NZ ecosystem. |
+| `DATABASE-SCHEMA.md` | Production PostgreSQL schema (DDL, ERD, attributed audit/versioning). |
 
 ## Notes for turning this into a real product
 
