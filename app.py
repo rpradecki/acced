@@ -164,13 +164,33 @@ CSS = """
   .dd{color:var(--navy); font-size:12.5px; font-weight:600;}
   @media(max-width:700px){.dlgrid{grid-template-columns:1fr;}}
 
-  /* dashboard summary metric cards */
+  /* dashboard summary metric cards — value + label share one baseline-aligned line */
   .metricrow{display:flex; gap:8px; flex-wrap:wrap; margin:2px 0 6px;}
-  .metric{flex:1 1 120px; border:1px solid var(--slate-200); border-radius:10px; padding:8px 12px; background:#fff;}
-  .metric .mv{font-size:22px; font-weight:700; color:var(--navy); line-height:1.05;}
-  .metric .ml{font-size:10px; color:var(--slate-500); text-transform:uppercase; letter-spacing:.04em; font-weight:700; margin-top:3px;}
+  .metric{flex:1 1 120px; border:1px solid var(--slate-200); border-radius:10px; padding:6px 12px; background:#fff;
+    display:flex; align-items:baseline; gap:8px;}
+  .metric .mv{font-size:20px; font-weight:700; color:var(--navy); line-height:1.15;}
+  .metric .ml{font-size:10px; color:var(--slate-500); text-transform:uppercase; letter-spacing:.04em;
+    font-weight:700; line-height:1.15;}
   .metric.warn{background:var(--amber-50); border-color:var(--amber-200);} .metric.warn .mv{color:var(--amber-700);}
   .metric.err{background:var(--red-50); border-color:var(--red-200);} .metric.err .mv{color:var(--red-700);}
+
+  /* Dashboard panels (keyed st.container → stable .st-key-pane_* class). The panel owns
+     padding:0 so the header band can run edge-to-edge; overflow:hidden lets the panel's
+     radius clip the band's top corners. Body children get the padding back individually. */
+  [class*="st-key-pane_"]{
+    padding:0 !important; overflow:hidden; border-radius:12px; background:#fff;
+    border:1px solid var(--slate-200) !important; box-shadow:0 1px 2px rgba(37,42,71,.06);
+  }
+  [class*="st-key-pane_"] > *{padding-left:12px; padding-right:12px;}
+  [class*="st-key-pane_"] > *:first-child{padding-left:0; padding-right:0;}  /* the header band */
+  [class*="st-key-pane_"] > *:last-child{padding-bottom:10px;}
+
+  /* shaded header band, flush to the top of its panel, separated from the white body */
+  .panelhdr{padding:9px 14px; background:var(--blue-50); border-bottom:1px solid var(--slate-200);
+    font-size:11.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--blue); font-weight:700;}
+
+  /* "New ACC45 claim" sits at the upper right, level with the page title */
+  .st-key-new_claim_btn .stButton{display:flex; justify-content:flex-end;}
 </style>
 """
 
@@ -385,6 +405,11 @@ def readiness_pill(c):
 
 def sec(title):
     st.markdown(f'<div class="sec">{title}</div>', unsafe_allow_html=True)
+
+
+def panel_header(title):
+    """Shaded band flush to the top of a bordered panel (dashboard section headers)."""
+    st.markdown(f'<div class="panelhdr">{title}</div>', unsafe_allow_html=True)
 
 
 def html(s):
@@ -712,10 +737,21 @@ def dashboard():
     working = [c for c in st.session_state.claims if c["reference"] in touched]
     pool = [c for c in st.session_state.claims if c["reference"] not in touched]
 
-    st.markdown("#### ACC submissions")
-    st.caption("Unsubmitted referrals have no edit clock — but ACC should be lodged **within 12 months** of the "
-               "accident (later needs supporting records). Once **submitted**, a referral stays editable for "
-               "**14 days** for update, revision or repair, then drops off (read-only).")
+    head_l, head_r = st.columns([3, 1], vertical_alignment="center")
+    with head_l:
+        st.markdown("#### ACC submissions")
+        st.caption("Unsubmitted referrals have no edit clock — but ACC should be lodged **within 12 months** of the "
+                   "accident (later needs supporting records). Once **submitted**, a referral stays editable for "
+                   "**14 days** for update, revision or repair, then drops off (read-only).")
+    with head_r:
+        with st.container(key="new_claim_btn"):
+            if st.button("➕ New ACC45 claim (from PMS encounter)", type="primary"):
+                nc = new_claim()
+                st.session_state.claims.append(nc)
+                audit_save(nc, "claim created")
+                st.session_state.active = nc["id"]
+                st.session_state.tab = "admin"
+                st.rerun()
 
     # panes — your working set (claims you've created or opened)
     unsubmitted = sorted([c for c in working if c["status"] in ("draft", "ready")],
@@ -735,17 +771,9 @@ def dashboard():
          f'<div class="metric{" warn" if expiring else ""}"><div class="mv">{expiring}</div><div class="ml">Expiring ≤3 days</div></div>'
          '</div>')
 
-    if st.button("➕ New ACC45 claim (from PMS encounter)", type="primary"):
-        c = new_claim()
-        st.session_state.claims.append(c)
-        audit_save(c, "claim created")
-        st.session_state.active = c["id"]
-        st.session_state.tab = "admin"
-        st.rerun()
-
-    # 1) UNSUBMITTED — drafts & ready to lodge; STATUS = next step to lodge; LODGE BY = 12-month timeliness
-    with st.container(border=True):
-        sec("Unsubmitted · drafts &amp; ready to lodge")
+    # 1) DRAFTS — unsubmitted; STATUS = next step to lodge; LODGE BY = 12-month timeliness
+    with st.container(border=True, key="pane_drafts"):
+        panel_header("Drafts")
         if not unsubmitted:
             st.caption("Nothing unsubmitted.")
         else:
@@ -753,9 +781,9 @@ def dashboard():
             for c in unsubmitted:
                 _submission_row(c, kind="unsubmitted")
 
-    # 2) SUBMITTED — lodged/decided, still inside the 14-day post-lodgement repair window
-    with st.container(border=True):
-        sec("Submitted · within 14-day update / revision / repair window")
+    # 2) MY SUBMISSIONS — lodged/decided, still inside the 14-day post-lodgement repair window
+    with st.container(border=True, key="pane_submitted"):
+        panel_header("My Submissions – Within 14 Days")
         if not submitted:
             st.caption("Nothing submitted in the last 14 days.")
         else:
@@ -763,18 +791,10 @@ def dashboard():
             for c in submitted:
                 _submission_row(c, kind="submitted")
 
-    # 3) EXPIRED — read-only (past the 14-day repair window)
-    if expired:
-        with st.expander(f"Expired — read-only (past 14-day repair window) · {len(expired)}"):
-            st.caption("The 14-day post-lodgement update/revision/repair window has closed. Shown for reference only.")
-            _row_header("submitted")
-            for c in expired:
-                _submission_row(c, kind="expired")
-
-    # 4) REST OF THE PRACTICE — same facility, but not in your working set yet. Opening one
+    # 3) REST OF THE PRACTICE — same facility, but not in your working set yet. Opening one
     #    moves it up into the panes above (it joins your per-identity "touched" set).
-    with st.container(border=True):
-        sec(f"Rest of {PRACTICE_FACILITY} · not yet opened by you · {len(pool)}")
+    with st.container(border=True, key="pane_practice"):
+        panel_header(PRACTICE_FACILITY)
         if not pool:
             st.caption("You've opened every claim in the practice.")
         else:
@@ -783,6 +803,14 @@ def dashboard():
             _practice_header()
             for c in sorted(pool, key=lambda c: c["reference"]):
                 _practice_row(c)
+
+    # 4) PAST SUBMISSIONS — read-only (past the 14-day repair window); archived at the bottom
+    if expired:
+        with st.expander(f"Past Submissions · {len(expired)}"):
+            st.caption("The 14-day post-lodgement update/revision/repair window has closed. Shown for reference only.")
+            _row_header("submitted")
+            for c in expired:
+                _submission_row(c, kind="expired")
 
 
 def admin_panel(c):
@@ -1286,7 +1314,15 @@ with st.sidebar:
 
 _role = st.session_state.get("role", "clinical")
 c = active_claim()
+# NB: these must be statements, not bare conditional expressions — Streamlit's "magic"
+# renders the value of any root-level expression statement, which printed a stray "None".
 if cx.auth.is_audit(_role):
-    inspect_view(c) if c is not None else audit_dashboard()
+    if c is not None:
+        inspect_view(c)
+    else:
+        audit_dashboard()
 else:
-    workspace(c) if c is not None else dashboard()
+    if c is not None:
+        workspace(c)
+    else:
+        dashboard()
