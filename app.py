@@ -224,7 +224,8 @@ def new_claim():
         "reference": allocate_number(),
         "number_source": "acc_allocation_api",
         "status": "draft",
-        "decision": None,
+        "decision": None,          # ACC's cover decision; null until ACC issues one
+        "acknowledged_at": None,   # transport receipt from eLodgement — not a decision
         "created": date.today(),
         "created_by": cx.auth.current_user(st.session_state.get("role", "clinical"))["name"],
         "lodged_on": None,
@@ -442,7 +443,7 @@ def dx_table(diags, with_status=True):
 def _base(ref):
     return {
         "id": uid(), "reference": ref, "number_source": "acc_allocation_api",
-        "status": "draft", "decision": None,
+        "status": "draft", "decision": None, "acknowledged_at": None,
         "created": date.today(), "created_by": "Dr A. Rangi", "lodged_on": None,
         "encounter": {"external_id": "ENC-" + str(random.randint(100000, 999999)), "source": "pms_context",
                       "facility": "Riverside Medical Centre", "provider": "Dr A. Rangi (GP)",
@@ -505,6 +506,7 @@ def seed_claims():
     # 3) LODGED / ACCEPTED — grid read-only; edit via post-lodgement diagnosis change in the Review tab.
     c3 = _merge(_base("IO16456"), {
         "status": "accepted", "decision": "Accepted",
+        "acknowledged_at": "(receipt)",
         "created": date.today() - timedelta(days=9), "lodged_on": date.today() - timedelta(days=9),
         "patient": {"pas_id": "PAS-51188", "given": "Sina", "family": "Faleolo", "dob": "1998-02-27",
                     "nhi": "NBW7712", "mobile": "022 909 3312", "address": "5 Harakeke Street, Christchurch 8025"},
@@ -521,6 +523,7 @@ def seed_claims():
     # 4) DECLINED — needs repair and the edit window is closing (2 days left).
     c4 = _merge(_base("IO16450"), {
         "status": "declined", "decision": "Declined",
+        "acknowledged_at": "(receipt)",
         "created": date.today() - timedelta(days=12), "lodged_on": date.today() - timedelta(days=12),
         "patient": {"pas_id": "PAS-33902", "given": "Tomasi", "family": "Vaka", "dob": "1988-09-14",
                     "nhi": "PLR5521", "mobile": "021 700 4412", "address": "88 Rata Street, Christchurch 8011"},
@@ -534,6 +537,7 @@ def seed_claims():
     # 5) EXPIRED — outside the 14-day window; read-only / archived (16 days old).
     c5 = _merge(_base("IO16445"), {
         "status": "accepted", "decision": "Accepted",
+        "acknowledged_at": "(receipt)",
         "created": date.today() - timedelta(days=16), "lodged_on": date.today() - timedelta(days=16),
         "patient": {"pas_id": "PAS-21847", "given": "Grace", "family": "Wilson", "dob": "1962-01-30",
                     "nhi": "QDF3390", "mobile": "027 118 2244", "address": "3 Miro Place, Christchurch 8042"},
@@ -689,8 +693,9 @@ def _submission_row(c, kind="submitted"):
     if kind == "unsubmitted":
         cols[2].markdown(readiness_pill(c), unsafe_allow_html=True)
     else:
-        dec = f' <span class="mono">{c["decision"]}</span>' if c.get("decision") else ""
-        cols[2].markdown(status_pill(c["status"]) + dec, unsafe_allow_html=True)
+        # The status pill already carries the decision — ACC's cover status and our claim
+        # status are the same word once a determination lands. Don't print it twice.
+        cols[2].markdown(status_pill(c["status"]), unsafe_allow_html=True)
     cols[3].write(str(c["accident"]["adate"] or "—"))
     cols[4].markdown(lodgement_note(c) if kind == "unsubmitted" else window_pill(c), unsafe_allow_html=True)
     if cols[5].button("Open" if not read_only else "View", key="open_" + c["id"]):
@@ -716,8 +721,7 @@ def _practice_row(c):
     if c["status"] in ("draft", "ready"):
         cols[2].markdown(readiness_pill(c), unsafe_allow_html=True)
     else:
-        dec = f' <span class="mono">{c["decision"]}</span>' if c.get("decision") else ""
-        cols[2].markdown(status_pill(c["status"]) + dec, unsafe_allow_html=True)
+        cols[2].markdown(status_pill(c["status"]), unsafe_allow_html=True)
     cols[3].write(str(c["accident"]["adate"] or "—"))
     cols[4].markdown(f'<span class="mono" style="font-size:12px;color:var(--slate-500)">{c["created_by"]}</span>',
                      unsafe_allow_html=True)
@@ -1120,9 +1124,10 @@ def review_panel(c):
                     d["status"] = "lodged"
                 c["status"] = "lodged"
                 c["lodged_on"] = date.today()  # starts the 14-day repair window
-                c["decision"] = cx.acc.lodge(c)  # ACC eLodgement (stub)
+                # Lodging yields a transport receipt, not a cover decision — ACC assesses
+                # asynchronously, so `decision` stays None until its determination lands.
+                c["acknowledged_at"] = cx.acc.lodge(c)  # ACC eLodgement (stub)
                 audit_save(c, "lodged ACC45")
-                cx.notification.send_decision_sms(c["patient"]["mobile"], c["reference"], c["decision"])
                 st.rerun()
             lc[1].caption("Edit window expired — cannot lodge." if expired
                           else ("Validation passed." if can else "Complete is disabled until validation passes."))
@@ -1133,20 +1138,29 @@ def review_panel(c):
     # Post-lodgement actions (only once the claim has been lodged).
     if c["status"] not in ("draft", "ready"):
         with st.container(border=True):
-            html(f'<div class="bnr info">✓ ACC45 lodged. Decision: <b>{c["decision"]}</b>. Diagnosis grid is now '
+            ack = f' — receipt acknowledged {c["acknowledged_at"]}' if c.get("acknowledged_at") else ""
+            cover = (f'Cover decision: <b>{c["decision"]}</b>.' if c.get("decision")
+                     else "Awaiting ACC's cover decision.")
+            html(f'<div class="bnr info">✓ ACC45 lodged{ack}. {cover} Diagnosis grid is now '
                  f'read-only; further clinical changes go through a diagnosis-change request.</div>')
             if c["status"] == "lodged":
-                st.caption("Simulate ACC decision:")
+                st.caption("ACC assesses cover asynchronously. Simulate the decision ACC returns:")
                 d1, d2, d3, _ = st.columns([1, 1, 1, 4])
+
+                def _decide(choice):
+                    """A cover decision arrives async; the patient's SMS goes out with it."""
+                    c["status"] = choice.lower()
+                    c["decision"] = cx.acc.decision(choice)
+                    audit_save(c, f"ACC decision: {choice}")
+                    cx.notification.send_decision_sms(c["patient"]["mobile"], c["reference"], choice)
+                    st.rerun()
+
                 if d1.button("Accepted"):
-                    c["status"] = "accepted"; c["decision"] = cx.acc.decision("Accepted")
-                    audit_save(c, "ACC decision: Accepted"); st.rerun()
+                    _decide("Accepted")
                 if d2.button("Held"):
-                    c["status"] = "held"; c["decision"] = cx.acc.decision("Held")
-                    audit_save(c, "ACC decision: Held"); st.rerun()
+                    _decide("Held")
                 if d3.button("Declined"):
-                    c["status"] = "declined"; c["decision"] = cx.acc.decision("Declined")
-                    audit_save(c, "ACC decision: Declined"); st.rerun()
+                    _decide("Declined")
 
             sec("Post-lodgement diagnosis changes")
             if cx.auth.can_edit_clinical(role):

@@ -89,7 +89,8 @@ and in rules).
 | `created_by` | string | owning user (dashboard is scoped to this) |
 | `lodged_on` | date\|null | set at lodgement; **anchors the 14-day repair window** (null while unsubmitted) |
 | `status` | enum | `draft` \| `ready` \| `lodged` \| `accepted` \| `held` \| `declined` |
-| `decision` | string\|null | `Received` \| `Accepted` \| `Held` \| `Declined` \| null |
+| `decision` | string\|null | ACC's cover decision: `Accepted` \| `Held` \| `Declined` \| null. **Null until ACC issues one** — lodging does not set it. ACC has no `Received` cover status; `held` is its documented under-review state. |
+| `acknowledged_at` | string\|null | eLodgement transport receipt (the message reached ACC). **Not** a cover decision. |
 | `encounter` | Encounter | see below |
 | `patient` | Patient | Part A |
 | `employment` | Employment | Part B |
@@ -270,8 +271,8 @@ Four Yes/No controls. Contextual banners when set to `Yes`:
 - Run **validation** (§8). Show a readiness card: green "ready to lodge" or a red list of blocking errors; a warn list for non-blocking warnings.
 - **Role gate:** only a role that can submit (**clinical**) sees the lodge control. Clerical instead sees a warn notice: *"Your clerical role can prepare and review this claim but cannot submit it. A clinician lodges the ACC45."*
 - **"Complete & lodge ACC45"** is **disabled** unless validation passes (`can_lodge`) **and** the claim is not expired.
-  On lodge: set every diagnosis `status="lodged"`, claim `status="lodged"`, `lodged_on=today` (starts the 14-day repair window), `decision=` the ACC connector's acknowledgement (`"Received"`); persist an attributed audit entry ("lodged ACC45"); fire the stubbed decision SMS.
-- After lodge, a **Simulate ACC decision** control (Accepted/Held/Declined) sets `status`/`decision` and persists an attributed audit entry.
+  On lodge: set every diagnosis `status="lodged"`, claim `status="lodged"`, `lodged_on=today` (starts the 14-day repair window), and `acknowledged_at=` the ACC connector's **transport receipt**; persist an attributed audit entry ("lodged ACC45"). `decision` stays **null** — ACC assesses cover asynchronously, and no SMS is sent yet.
+- After lodge, a **Simulate ACC decision** control (Accepted/Held/Declined) sets `status`/`decision`, fires the stubbed decision SMS, and persists an attributed audit entry.
 
 ### 7.10 Post-lodgement diagnosis change (Review → dialog)
 - Only when lodged. Info banner explains it's a **Change-in-Diagnosis request** (not a
@@ -456,7 +457,7 @@ A replicated build should pass all of these (mirrors the reference test suite):
 3. **Tabs:** three visible, readable tabs; clicking switches the panel; the active tab is visually distinct and legible.
 4. **Eligibility gate — block:** a claim whose only diagnosis is non-eligible (e.g. `183932001` Presentation for social reasons) is **not lodgeable**; the readiness list contains "At least one ACC-eligible diagnosis is required to lodge." and the lodge button is disabled.
 5. **Eligibility gate — pass:** adding one `acc=true` diagnosis (with all other required fields) enables lodging.
-6. **Lodge:** lodging flips status to `lodged`, sets `decision=Received`, marks diagnoses `lodged`, and reveals the post-lodgement change action.
+6. **Lodge:** lodging flips status to `lodged`, records `acknowledged_at` (the transport receipt) while leaving `decision` null, marks diagnoses `lodged`, and reveals the post-lodgement change action.
 7. **Read-only after lodge:** the Clinician diagnosis grid is read-only once lodged.
 8. **Post-lodgement change:** requires same-event; on submit, creates a ChangeRequest and a `change_pending` diagnosis row.
 9. **Part E signer gate:** the Part E declaration can be signed only by the **clinical** role; for clerical/audit the sign control is disabled with an explanatory banner.

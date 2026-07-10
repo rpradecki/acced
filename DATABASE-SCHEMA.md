@@ -97,7 +97,12 @@ CREATE TABLE claim (
     number_source  number_source NOT NULL,
     claim_type     claim_type NOT NULL DEFAULT 'injury',
     status         claim_status NOT NULL DEFAULT 'draft',
-    decision       text,                           -- Received/Accepted/Held/Declined
+    decision       text,                           -- ACC cover decision: Accepted/Held/Declined.
+                                                   -- NULL until ACC issues one. ACC has no
+                                                   -- "Received" cover status; 'held' is the
+                                                   -- documented under-review ("pre-cover") state.
+    acknowledged_at timestamptz,                   -- eLodgement transport receipt (message
+                                                   -- reached ACC) — NOT a cover decision.
     -- encounter (from PMS/PAS SMART launch) — references, not master data
     encounter_external_id  text,
     encounter_source_system text,

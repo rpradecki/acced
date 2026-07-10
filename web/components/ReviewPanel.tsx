@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useStore } from "@/lib/store";
-import type { Claim, ClaimStatus } from "@/lib/types";
+import type { Claim, ClaimStatus, CoverDecision } from "@/lib/types";
 import { STATUS_LABEL, isExpired, todayISO, validate } from "@/lib/domain";
 import { acc, auth, notification } from "@/lib/connectors";
 import { Banner, Card, DefList, DxTable, WideRow } from "./ui";
@@ -105,7 +105,8 @@ export default function ReviewPanel({ claim: c }: { claim: Claim }) {
   const expired = isExpired(c);
   const unsubmitted = c.status === "draft" || c.status === "ready";
 
-  const decide = (choice: "Accepted" | "Held" | "Declined") =>
+  /** ACC's cover decision arrives asynchronously; the patient's SMS goes out with it. */
+  const decide = (choice: CoverDecision) => {
     updateClaim(
       c.id,
       (d) => {
@@ -114,6 +115,8 @@ export default function ReviewPanel({ claim: c }: { claim: Claim }) {
       },
       `ACC decision: ${choice}`,
     );
+    notification.sendDecisionSms(c.patient.mobile, c.reference, choice);
+  };
 
   return (
     <>
@@ -161,11 +164,12 @@ export default function ReviewPanel({ claim: c }: { claim: Claim }) {
                       d.diagnoses.forEach((x) => { x.status = "lodged"; });
                       d.status = "lodged";
                       d.lodged_on = todayISO(); // starts the 14-day repair window
-                      d.decision = acc.lodge(d);
+                      // Lodging yields a transport receipt, not a cover decision — ACC
+                      // assesses asynchronously, so `decision` stays null until it lands.
+                      d.acknowledged_at = acc.lodge(d);
                     },
                     "lodged ACC45",
                   );
-                  notification.sendDecisionSms(c.patient.mobile, c.reference, "Received");
                 }}
               >
                 Complete &amp; lodge ACC45
@@ -187,13 +191,22 @@ export default function ReviewPanel({ claim: c }: { claim: Claim }) {
       {!unsubmitted && (
         <Card>
           <Banner kind="info">
-            ✓ ACC45 lodged. Decision: <b>{c.decision}</b>. Diagnosis grid is now read-only; further clinical changes go
-            through a diagnosis-change request.
+            ✓ ACC45 lodged{c.acknowledged_at && <> — receipt acknowledged {c.acknowledged_at}</>}.{" "}
+            {c.decision ? (
+              <>
+                Cover decision: <b>{c.decision}</b>.
+              </>
+            ) : (
+              <>Awaiting ACC&apos;s cover decision.</>
+            )}{" "}
+            Diagnosis grid is now read-only; further clinical changes go through a diagnosis-change request.
           </Banner>
 
           {c.status === "lodged" && (
             <>
-              <p className="caption">Simulate ACC decision:</p>
+              <p className="caption">
+                ACC assesses cover asynchronously. Simulate the decision ACC returns:
+              </p>
               <div className="rowflex">
                 <button className="btn" onClick={() => decide("Accepted")}>Accepted</button>
                 <button className="btn" onClick={() => decide("Held")}>Held</button>

@@ -6,7 +6,7 @@
  * Ported from connectors.py. See PRODUCTION-READINESS.md for the gap analysis.
  */
 
-import type { Claim, ClaimVersion, AuditEvent, Role } from "./types";
+import type { Claim, ClaimVersion, AuditEvent, Role, CoverDecision } from "./types";
 
 export const CONNECTOR_MODE: Record<string, string> = {
   auth: "stub",
@@ -182,9 +182,18 @@ export const terminology = {
 export const acc = {
   /** Opaque string; format is ACC-owned and changing — do not parse elsewhere. */
   allocateClaimNumber: (seq: number) => "IO" + seq,
-  lodge: (_claim: Claim) => "Received",
-  decision: (choice: string) =>
-    ({ Accepted: "Accepted", Held: "Held", Declined: "Declined" })[choice] ?? "Received",
+
+  /**
+   * Submit the ACC45. Returns a **transport-level acknowledgement** — the message
+   * reached ACC — after which ACC registers the claim. This is NOT a cover decision:
+   * ACC's documented cover statuses are accept / decline / held (held = under review),
+   * plus "not applicable" while the claim is not yet registered. A cover decision
+   * arrives asynchronously (webhook/poll) and lands in `Claim.decision`.
+   */
+  lodge: (_claim: Claim): string => nowStamp(),
+
+  /** Cover decision, delivered asynchronously by ACC. STUB: simulated by buttons. */
+  decision: (choice: CoverDecision): CoverDecision => choice,
 };
 
 // ---------------------------------------------------------------------------

@@ -84,7 +84,11 @@ Patient presents
 [SYSTEM] Validation gate (all mandatory fields, ≥1 diagnosis, eligible signer)
       │
       ▼
-[SYSTEM] Lodge claim ──► ACC (stubbed) ──► decision status (Received / Accepted / Held / Declined)
+[SYSTEM] Lodge claim ──► ACC (stubbed) ──► transport receipt (message reached ACC)
+      │                                     then ACC registers the claim
+      │
+      ▼
+[ACC, async] Cover decision ──► Held (under review / "pre-cover") ──► Accepted | Declined
       │
       ▼
 [ONGOING] Update claim, add ACC18 recertifications, change diagnoses, amend details
@@ -95,6 +99,17 @@ Key handoffs:
 - **Admin → Clinician** is a soft handoff: both can work concurrently on the same claim record. The clinician view shows a read-only summary of the accident/consent context the admin captured, and flags anything missing.
 - **Lodgement gate** is the hard gate. The `Complete`/`Lodge` action is disabled until validation passes and an eligible signer has attested (for claim types that require it).
 - **Recertification loop:** after lodgement, a clinician can issue additional ACC18 certificates against the same claim, each with its own capacity determination and validity period.
+
+### 3.1 Cover statuses — don't confuse a receipt with a decision
+
+ACC's provider-facing **cover status** is documented as `accept`, `decline`, `held`, `not available`, or `not applicable` — where *not applicable* means ACC has not yet registered the claim, and **`held` is the real "lodged but undetermined" state** (ACC calls it *pre-cover*). Two consequences for this product:
+
+- **There is no `Received` cover status.** eLodgement (historically via HealthLink/PMS messaging) returns a **transport-level acknowledgement** — the message reached ACC — after which ACC registers the claim. That receipt is not a determination and must not be written into the claim's `decision` field. Model it separately (`acknowledged_at`).
+- **Cover decisions arrive asynchronously.** `decision` stays null from lodgement until ACC returns `Accepted` / `Held` / `Declined`. Because our claim `status` mirrors that word, the UI shows the status badge alone rather than printing the decision twice.
+
+A real `Declined` also carries a **reason** — that, not the word "Declined", is the thing worth surfacing next to the badge.
+
+> Source: [Find claim by number — ProviderHub guide (PDF), ACC](https://www.acc.co.nz/assets/Uploads/Find-claim-by-number.pdf); [Getting a decision on your patient's claim — ACC](https://www.acc.co.nz/for-providers/lodging-claims/claims-decisions).
 
 ---
 

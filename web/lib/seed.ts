@@ -13,6 +13,7 @@ function base(reference: string): Claim {
     number_source: "acc_allocation_api",
     status: "draft",
     decision: null,
+    acknowledged_at: null,
     created: todayISO(),
     created_by: "Dr A. Rangi",
     lodged_on: null,
@@ -90,7 +91,7 @@ export function seedClaims(): Claim[] {
 
   // 3) LODGED / ACCEPTED — grid read-only; edit via post-lodgement change request.
   const c3 = base("IO16456");
-  Object.assign(c3, { status: "accepted" as ClaimStatus, decision: "Accepted", created: addDaysISO(today, -9), lodged_on: addDaysISO(today, -9) });
+  Object.assign(c3, { status: "accepted" as ClaimStatus, decision: "Accepted", created: addDaysISO(today, -9), lodged_on: addDaysISO(today, -9), acknowledged_at: `${addDaysISO(today, -9)} 09:00:00` });
   c3.patient = { pas_id: "PAS-51188", given: "Sina", family: "Faleolo", dob: "1998-02-27", nhi: "NBW7712", mobile: "022 909 3312", email: "", address: "5 Harakeke Street, Christchurch 8025" };
   c3.employment = { status: "Employee", occupation: "Chef", employer: "Harbourview Restaurant" };
   c3.accident = { adate: "2026-06-30", atime: "19:45", location: "Christchurch City", scene: "Work", workplace: "Yes", vehicle: "No", sporting: "No", sport: "", cause: "slipped on wet kitchen floor – put out right hand to break the fall" };
@@ -101,7 +102,7 @@ export function seedClaims(): Claim[] {
 
   // 4) DECLINED — needs repair, edit window closing.
   const c4 = base("IO16450");
-  Object.assign(c4, { status: "declined" as ClaimStatus, decision: "Declined", created: addDaysISO(today, -12), lodged_on: addDaysISO(today, -12) });
+  Object.assign(c4, { status: "declined" as ClaimStatus, decision: "Declined", created: addDaysISO(today, -12), lodged_on: addDaysISO(today, -12), acknowledged_at: `${addDaysISO(today, -12)} 09:00:00` });
   c4.patient = { pas_id: "PAS-33902", given: "Tomasi", family: "Vaka", dob: "1988-09-14", nhi: "PLR5521", mobile: "021 700 4412", email: "", address: "88 Rata Street, Christchurch 8011" };
   c4.employment = { status: "Employee", occupation: "Courier driver", employer: "FastParcel NZ" };
   c4.accident = { adate: addDaysISO(today, -12), atime: "07:50", location: "Christchurch City", scene: "Road", workplace: "No", vehicle: "Yes", sporting: "No", sport: "", cause: "rear-ended at traffic lights – neck pain" };
@@ -111,7 +112,7 @@ export function seedClaims(): Claim[] {
 
   // 5) EXPIRED — outside the 14-day window; read-only / archived.
   const c5 = base("IO16445");
-  Object.assign(c5, { status: "accepted" as ClaimStatus, decision: "Accepted", created: addDaysISO(today, -16), lodged_on: addDaysISO(today, -16) });
+  Object.assign(c5, { status: "accepted" as ClaimStatus, decision: "Accepted", created: addDaysISO(today, -16), lodged_on: addDaysISO(today, -16), acknowledged_at: `${addDaysISO(today, -16)} 09:00:00` });
   c5.patient = { pas_id: "PAS-21847", given: "Grace", family: "Wilson", dob: "1962-01-30", nhi: "QDF3390", mobile: "027 118 2244", email: "", address: "3 Miro Place, Christchurch 8042" };
   c5.employment = { status: "Retired", occupation: "", employer: "" };
   c5.accident = { adate: addDaysISO(today, -16), atime: "11:15", location: "Christchurch City", scene: "Home", workplace: "No", vehicle: "No", sporting: "No", sport: "", cause: "tripped on a rug – landed on right wrist" };

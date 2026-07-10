@@ -5,6 +5,14 @@ export type Role = "clerical" | "clinical" | "audit";
 
 export type ClaimStatus = "draft" | "ready" | "lodged" | "accepted" | "held" | "declined";
 
+/**
+ * ACC's cover decision. Per ACC's ProviderHub, a claim's cover status is
+ * accept / decline / held (held = under review, "pre-cover"). There is NO
+ * "Received" cover decision — an eLodgement acknowledgement is a transport-level
+ * receipt, not a determination, and is recorded on `Claim.acknowledged_at`.
+ */
+export type CoverDecision = "Accepted" | "Held" | "Declined";
+
 export type YesNo = "Yes" | "No";
 
 export type Capacity = "" | "Fully fit" | "Fit for selected work" | "Fully unfit";
@@ -106,7 +114,10 @@ export interface Claim {
   reference: string;
   number_source: string;
   status: ClaimStatus;
-  decision: string | null;
+  /** ACC's cover decision. Null until ACC issues one — lodging does not set it. */
+  decision: CoverDecision | null;
+  /** Transport-level eLodgement receipt ("your message reached ACC"). Not a decision. */
+  acknowledged_at: string | null;
   created: string;
   created_by: string;
   lodged_on: string | null;

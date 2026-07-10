@@ -274,7 +274,7 @@ class ACCConnector:
     PRODUCTION   : call the allocation API at claim creation; submit the lodgement
                    payload and persist ACC's acknowledgement; receive async cover
                    decisions (webhook/poll). Invoicing is out of scope.
-    STATUS       : STUB — sequential IO##### numbers; lodge returns 'Received'.
+    STATUS       : STUB — sequential IO##### numbers; lodge returns a receipt timestamp.
     """
     STUB = True
 
@@ -283,12 +283,18 @@ class ACCConnector:
         return "IO" + str(seq)
 
     def lodge(self, claim: dict) -> str:
-        """Submit ACC45. STUB: acknowledge as 'Received'."""
-        return "Received"
+        """
+        Submit the ACC45 and return a **transport-level acknowledgement** — the message
+        reached ACC — after which ACC registers the claim. This is NOT a cover decision:
+        ACC's documented cover statuses are accept / decline / held (held = under review,
+        'pre-cover'), plus 'not applicable' while the claim is not yet registered. There
+        is no 'Received' cover status. A cover decision arrives asynchronously.
+        """
+        return datetime.now().isoformat(timespec="seconds")
 
     def decision(self, choice: str) -> str:
-        """Map a simulated cover decision. STUB only — real decisions arrive async."""
-        return {"Accepted": "Accepted", "Held": "Held", "Declined": "Declined"}.get(choice, "Received")
+        """A simulated cover decision. STUB only — real decisions arrive async."""
+        return {"Accepted": "Accepted", "Held": "Held", "Declined": "Declined"}[choice]
 
 
 # ---------------------------------------------------------------------------

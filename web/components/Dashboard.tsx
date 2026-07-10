@@ -37,10 +37,7 @@ function SubmissionRow({ claim, kind }: { claim: Claim; kind: RowKind }) {
         {kind === "unsubmitted" ? (
           <ReadinessPill claim={claim} />
         ) : (
-          <>
-            <StatusPill status={claim.status} />
-            {claim.decision && <span className="mono" style={{ marginLeft: 6 }}>{claim.decision}</span>}
-          </>
+          <StatusPill status={claim.status} />
         )}
       </span>
       <span>{claim.accident.adate ?? "—"}</span>
@@ -70,10 +67,7 @@ function PracticeRow({ claim }: { claim: Claim }) {
         {draftish ? (
           <ReadinessPill claim={claim} />
         ) : (
-          <>
-            <StatusPill status={claim.status} />
-            {claim.decision && <span className="mono" style={{ marginLeft: 6 }}>{claim.decision}</span>}
-          </>
+          <StatusPill status={claim.status} />
         )}
       </span>
       <span>{claim.accident.adate ?? "—"}</span>
