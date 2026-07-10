@@ -1,8 +1,18 @@
-# ACC Claim Console — Streamlit mockup
+# ACC Claim Console
 
 A two-role console for lodging New Zealand ACC injury claims (**ACC45**) and medical
-certificates (**ACC18**), built as an interactive **Streamlit** mockup for demo and
-product-validation purposes.
+certificates (**ACC18**), built as a mockup for demo and product-validation purposes.
+
+There are **two builds of the same app**, sharing one set of specs:
+
+| Build | Path | Stack | Deploy |
+|---|---|---|---|
+| **Next.js** (current direction) | [`web/`](web/README.md) | Next.js + TypeScript, hand-written CSS | Vercel (Root Directory = `web`) |
+| **Streamlit** (original mockup) | `app.py` | Streamlit | Streamlit Community Cloud |
+
+The Next.js build is a port: identical domain rules and the same stubbed connector seams, but
+it owns its own DOM. See [`web/README.md`](web/README.md) for why the port happened and what
+still separates it from production.
 
 > **Mockup only.** ACC lodgement and SNOMED CT terminology are **stubbed** — nothing is
 > sent to ACC, and the diagnosis picker uses a small in-file sample of the

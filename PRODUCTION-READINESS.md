@@ -93,6 +93,11 @@ edit-locked except via post-lodgement change requests, so contention is mainly o
 update/revision/repair window** (`EDIT_WINDOW_DAYS`), after which they become read-only
 and drop off the user's active dashboard. The datastore must enforce this policy (and any
 longer statutory retention for the record itself) rather than relying on in-session state.
+**Hosting ≠ compliance.** Neither of the mockup's hosts meets the residency bar: Streamlit
+Community Cloud is US-hosted, and **Vercel has no New Zealand region** (nearest is Sydney).
+That is acceptable for a research mockup with synthetic patients, but a production
+deployment must land on an approved NZ-region host — this is independent of the UI
+framework, and moving between them is not progress toward compliance.
 
 ## H. Audit trail (P0) — *connector: `audit` + `persistence`*
 **Gap.** Audit is an in-memory list lost on restart.
