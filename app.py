@@ -400,7 +400,7 @@ def readiness(c):
                     or (cap["state"] == "Fully unfit" and not cap["justification"].strip())
                     or not dec["made"] or not dec["provider_no"])
     if admin_missing:
-        return ("admin", "Admin step needed")
+        return ("admin", "Clerical step needed")
     if clin_missing:
         return ("clinician", "Clinician info needed")
     return ("ready", "Ready to lodge")

@@ -117,7 +117,7 @@ export function readiness(c: Claim): { code: ReadinessCode; label: string; cls: 
     !dec.made ||
     !dec.provider_no;
 
-  if (adminMissing) return { code: "admin", label: "Admin step needed", cls: "warn" };
+  if (adminMissing) return { code: "admin", label: "Clerical step needed", cls: "warn" };
   if (clinMissing) return { code: "clinician", label: "Clinician info needed", cls: "blue" };
   return { code: "ready", label: "Ready to lodge", cls: "ok" };
 }
