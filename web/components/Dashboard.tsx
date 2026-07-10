@@ -148,7 +148,7 @@ export default function Dashboard() {
         </div>
         <span className="grow" />
         <button className="btn primary" onClick={createClaim}>
-          ＋ New ACC45 claim (from PMS encounter)
+          ＋ New ACC45 claim
         </button>
       </div>
 
