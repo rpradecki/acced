@@ -2,7 +2,7 @@
 
 import { useStore } from "@/lib/store";
 import {
-  PRACTICE_FACILITY, daysLeft, daysSinceAccident, isExpired, isSubmitted, needsRepair, readiness,
+  PRACTICE_FACILITY, daysLeft, daysSinceAccident, isExpired, isSubmitted, readiness,
 } from "@/lib/domain";
 import type { Claim } from "@/lib/types";
 import { auth } from "@/lib/connectors";
@@ -32,9 +32,6 @@ function SubmissionRow({ claim, kind }: { claim: Claim; kind: RowKind }) {
       <span className="ref">{claim.reference}</span>
       <span>
         {claim.patient.given} {claim.patient.family}
-        {kind === "submitted" && needsRepair(claim) && (
-          <span className="pill warn" style={{ marginLeft: 6 }}>needs action</span>
-        )}
       </span>
       <span>
         {kind === "unsubmitted" ? (
@@ -161,7 +158,7 @@ export default function Dashboard() {
         ))}
       </div>
 
-      <Panelish title="Drafts" empty={!unsubmitted.length} emptyText="Nothing unsubmitted.">
+      <Panelish title="My Worklist" empty={!unsubmitted.length} emptyText="Nothing unsubmitted.">
         <SubmissionHeader kind="unsubmitted" />
         {unsubmitted.map((c) => (
           <SubmissionRow key={c.id} claim={c} kind="unsubmitted" />
