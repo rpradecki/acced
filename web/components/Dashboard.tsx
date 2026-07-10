@@ -166,7 +166,7 @@ export default function Dashboard() {
       </Panelish>
 
       <Panelish
-        title="My Submissions – Within 14 Days"
+        title="My Modifiable Submissions"
         empty={!submitted.length}
         emptyText="Nothing submitted in the last 14 days."
       >
@@ -176,26 +176,30 @@ export default function Dashboard() {
         ))}
       </Panelish>
 
-      <Panelish
-        title={PRACTICE_FACILITY}
-        empty={!pool.length}
-        emptyText="You've opened every claim in the practice."
-        caption="Claims colleagues started that you haven't opened yet — open one to add it to your working set above."
-      >
-        <div className="claimrow practice head">
-          <span>ACC45 no.</span>
-          <span>Patient</span>
-          <span>Status</span>
-          <span>Accident</span>
-          <span>Created by</span>
-          <span />
+      <details className="exp" open>
+        <summary>{PRACTICE_FACILITY} Global List</summary>
+        <div className="panel-body">
+          {pool.length === 0 ? (
+            <p className="caption">You&apos;ve opened every claim in the practice.</p>
+          ) : (
+            <div>
+              <div className="claimrow practice head">
+                <span>ACC45 no.</span>
+                <span>Patient</span>
+                <span>Status</span>
+                <span>Accident</span>
+                <span>Created by</span>
+                <span />
+              </div>
+              {[...pool]
+                .sort((a, b) => a.reference.localeCompare(b.reference))
+                .map((c) => (
+                  <PracticeRow key={c.id} claim={c} />
+                ))}
+            </div>
+          )}
         </div>
-        {[...pool]
-          .sort((a, b) => a.reference.localeCompare(b.reference))
-          .map((c) => (
-            <PracticeRow key={c.id} claim={c} />
-          ))}
-      </Panelish>
+      </details>
 
       {expired.length > 0 && (
         <details className="exp">
@@ -219,19 +223,17 @@ export default function Dashboard() {
 
 /** Panel that shows an empty caption instead of its rows when there's nothing to list. */
 function Panelish({
-  title, children, empty, emptyText, caption,
+  title, children, empty, emptyText,
 }: {
   title: string;
   children: React.ReactNode;
   empty: boolean;
   emptyText: string;
-  caption?: string;
 }) {
   return (
     <section className="panel">
       <div className="panelhdr">{title}</div>
       <div className="panel-body">
-        {caption && !empty && <p className="caption">{caption}</p>}
         {empty ? <p className="caption">{emptyText}</p> : <div>{children}</div>}
       </div>
     </section>
