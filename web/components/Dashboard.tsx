@@ -11,14 +11,15 @@ import { LodgementNote, ReadinessPill, StatusPill, WindowPill } from "./ui";
 type RowKind = "unsubmitted" | "submitted" | "expired";
 
 function SubmissionHeader({ kind }: { kind: RowKind }) {
-  const last = kind === "unsubmitted" ? "Lodge by" : "Repair window";
+  // Past submissions have no live repair window — the section title says as much.
+  const past = kind === "expired";
   return (
-    <div className="claimrow submissions head">
+    <div className={`claimrow ${past ? "past" : "submissions"} head`}>
       <span>ACC45 no.</span>
       <span>Patient</span>
       <span>Status</span>
       <span>Accident</span>
-      <span>{last}</span>
+      {!past && <span>{kind === "unsubmitted" ? "Lodge by" : "Repair window"}</span>}
       <span />
     </div>
   );
@@ -26,9 +27,9 @@ function SubmissionHeader({ kind }: { kind: RowKind }) {
 
 function SubmissionRow({ claim, kind }: { claim: Claim; kind: RowKind }) {
   const { openClaim } = useStore();
-  const readOnly = kind === "expired";
+  const past = kind === "expired";
   return (
-    <div className="claimrow submissions">
+    <div className={`claimrow ${past ? "past" : "submissions"}`}>
       <span className="ref">{claim.reference}</span>
       <span>
         {claim.patient.given} {claim.patient.family}
@@ -41,13 +42,15 @@ function SubmissionRow({ claim, kind }: { claim: Claim; kind: RowKind }) {
         )}
       </span>
       <span>{claim.accident.adate ?? "—"}</span>
-      <span>{kind === "unsubmitted" ? <LodgementNote claim={claim} /> : <WindowPill claim={claim} />}</span>
+      {!past && (
+        <span>{kind === "unsubmitted" ? <LodgementNote claim={claim} /> : <WindowPill claim={claim} />}</span>
+      )}
       <span className="act">
         <button
           className="btn"
           onClick={() => openClaim(claim.id, kind === "unsubmitted" ? "admin" : "review")}
         >
-          {readOnly ? "View" : "Open"}
+          {past ? "View" : "Open"}
         </button>
       </span>
     </div>
@@ -203,7 +206,7 @@ export default function Dashboard() {
               The 14-day post-lodgement update/revision/repair window has closed. Shown for reference only.
             </p>
             <div>
-              <SubmissionHeader kind="submitted" />
+              <SubmissionHeader kind="expired" />
               {expired.map((c) => (
                 <SubmissionRow key={c.id} claim={c} kind="expired" />
               ))}

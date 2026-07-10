@@ -436,6 +436,10 @@ table.tbl tr:last-child td {
 .claimrow.submissions {
   grid-template-columns: 1.05fr 1.7fr 1.75fr 1.1fr 1.55fr 78px;
 }
+/* past submissions drop the repair-window column — the window has closed */
+.claimrow.past {
+  grid-template-columns: 1.05fr 1.7fr 1.75fr 1.1fr 78px;
+}
 .claimrow.practice {
   grid-template-columns: 1.05fr 1.7fr 1.7fr 1.15fr 1.5fr 78px;
 }
