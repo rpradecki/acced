@@ -11,15 +11,16 @@ import { LodgementNote, ReadinessPill, StatusPill, WindowPill } from "./ui";
 type RowKind = "unsubmitted" | "submitted" | "expired";
 
 function SubmissionHeader({ kind }: { kind: RowKind }) {
-  // Past submissions have no live repair window — the section title says as much.
+  // Past submissions have no live repair window — the section title says as much — but the
+  // column slot stays (empty) so its columns line up with the sections above.
   const past = kind === "expired";
   return (
-    <div className={`claimrow ${past ? "past" : "submissions"} head`}>
+    <div className="claimrow submissions head">
       <span>ACC45 no.</span>
       <span>Patient</span>
       <span>Status</span>
       <span>Accident</span>
-      {!past && <span>{kind === "unsubmitted" ? "Lodge by" : "Repair window"}</span>}
+      <span>{past ? "" : kind === "unsubmitted" ? "Lodge by" : "Repair window"}</span>
       <span />
     </div>
   );
@@ -29,7 +30,7 @@ function SubmissionRow({ claim, kind }: { claim: Claim; kind: RowKind }) {
   const { openClaim } = useStore();
   const past = kind === "expired";
   return (
-    <div className={`claimrow ${past ? "past" : "submissions"}`}>
+    <div className="claimrow submissions">
       <span className="ref">{claim.reference}</span>
       <span>
         {claim.patient.given} {claim.patient.family}
@@ -42,9 +43,7 @@ function SubmissionRow({ claim, kind }: { claim: Claim; kind: RowKind }) {
         )}
       </span>
       <span>{claim.accident.adate ?? "—"}</span>
-      {!past && (
-        <span>{kind === "unsubmitted" ? <LodgementNote claim={claim} /> : <WindowPill claim={claim} />}</span>
-      )}
+      <span>{past ? "" : kind === "unsubmitted" ? <LodgementNote claim={claim} /> : <WindowPill claim={claim} />}</span>
       <span className="act">
         <button
           className="btn"
@@ -179,7 +178,7 @@ export default function Dashboard() {
           {pool.length === 0 ? (
             <p className="caption">You&apos;ve opened every claim in the practice.</p>
           ) : (
-            <div>
+            <div className="claimrows">
               <div className="claimrow practice head">
                 <span>ACC45 no.</span>
                 <span>Patient</span>
@@ -205,7 +204,7 @@ export default function Dashboard() {
             <p className="caption">
               The 14-day post-lodgement update/revision/repair window has closed. Shown for reference only.
             </p>
-            <div>
+            <div className="claimrows">
               <SubmissionHeader kind="expired" />
               {expired.map((c) => (
                 <SubmissionRow key={c.id} claim={c} kind="expired" />
@@ -231,7 +230,7 @@ function Panelish({
     <section className="panel">
       <div className="panelhdr">{title}</div>
       <div className="panel-body">
-        {empty ? <p className="caption">{emptyText}</p> : <div>{children}</div>}
+        {empty ? <p className="caption">{emptyText}</p> : <div className="claimrows">{children}</div>}
       </div>
     </section>
   );

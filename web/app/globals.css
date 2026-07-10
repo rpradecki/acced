@@ -426,25 +426,40 @@ table.tbl tr:last-child td {
 /* ---------------- claim rows: one grid shared by header + rows ---------------
    Header labels and data cells use the SAME grid template, so they always
    align and can never overlap. This is exactly what Streamlit's column
-   wrapper made unreliable (it collapsed injected block HTML to ~4.6px).      */
+   wrapper made unreliable (it collapsed injected block HTML to ~4.6px).
+
+   Tracks are minmax(0, Nfr): the 0 minimum makes each column a pure fraction
+   of the row's width, independent of its content. Without it, a wide cell in
+   one section (e.g. a long lodgement note) would push its track wider than the
+   same track in another section, so columns wouldn't line up between the
+   My Worklist / My Modifiable Submissions / Global List / Past Submissions
+   sections. Every section that shares a template now aligns at any width.     */
 .claimrow {
   display: grid;
   align-items: center;
   gap: 10px;
   padding: 6px 0;
 }
-.claimrow.submissions {
-  grid-template-columns: 1.05fr 1.7fr 1.75fr 1.1fr 1.55fr 78px;
+.claimrow > span {
+  min-width: 0; /* let cells shrink to their track rather than force it wider */
 }
-/* past submissions drop the repair-window column — the window has closed */
-.claimrow.past {
-  grid-template-columns: 1.05fr 1.7fr 1.75fr 1.1fr 78px;
-}
+.claimrow.submissions,
 .claimrow.practice {
-  grid-template-columns: 1.05fr 1.7fr 1.7fr 1.15fr 1.5fr 78px;
+  min-width: 680px;
+  grid-template-columns:
+    minmax(0, 1.05fr) minmax(0, 1.7fr) minmax(0, 1.75fr)
+    minmax(0, 1.1fr) minmax(0, 1.55fr) 78px;
 }
 .claimrow.audit {
-  grid-template-columns: 1fr 1.55fr 1.15fr 1.3fr 1.45fr 84px;
+  min-width: 700px;
+  grid-template-columns:
+    minmax(0, 1fr) minmax(0, 1.55fr) minmax(0, 1.15fr)
+    minmax(0, 1.3fr) minmax(0, 1.45fr) 84px;
+}
+/* Below the rows' min-width the group scrolls horizontally as one unit, so header
+   and data cells stay aligned and content is never clipped. */
+.claimrows {
+  overflow-x: auto;
 }
 .claimrow.head {
   padding-bottom: 4px;
