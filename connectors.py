@@ -266,14 +266,18 @@ class ACCConnector:
     """
     ACC claim number allocation, electronic lodgement, and cover decisions.
 
-    REAL SERVICE : ACC **Claim Number Allocation API** (on-demand ACC45 numbers) and ACC
-                   **eLodgement** for ACC45/ACC18 (historically via HealthLink/PMS
-                   messaging; increasingly API). ACC2152 for treatment injury.
-    STANDARDS    : ACC provider integration specs; number format is changing as the
-                   legacy pool exhausts — store references as opaque strings.
-    PRODUCTION   : call the allocation API at claim creation; submit the lodgement
-                   payload and persist ACC's acknowledgement; receive async cover
-                   decisions (webhook/poll). Invoicing is out of scope.
+    REAL SERVICE : ACC **Developer Resource Centre** (developer.acc.co.nz), integrated
+                   directly (this app is the ACC software vendor, not proxied via the PMS):
+                   **Claim Number Allocation API** (on-demand ACC45 numbers), **Claim API**
+                   (lodge ACC45/ACC18), **Query Claim Status API** (poll registration +
+                   cover decision). ACC2152 for treatment injury. Auth = API key + Health
+                   Secure Digital Certificate; a compliance (test) environment precedes prod.
+    STANDARDS    : ACC provider integration specs; ACC45 number is an opaque string with
+                   three valid formats (AB12345 / 12345AB / 1234ABC) — never parse it.
+    PRODUCTION   : allocate a number at claim creation; submit the lodgement payload and
+                   persist ACC's transport receipt (-> acknowledged_at); **poll** the Query
+                   Claim Status API for the async cover decision (no webhook). See
+                   PRODUCTION-READINESS.md F. Invoicing is out of scope.
     STATUS       : STUB — sequential IO##### numbers; lodge returns a receipt timestamp.
     """
     STUB = True

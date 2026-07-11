@@ -177,22 +177,27 @@ export const terminology = {
 };
 
 // ---------------------------------------------------------------------------
-// 6. ACC — number allocation, eLodgement, cover decisions
+// 6. ACC — number allocation, lodgement, cover-status polling
+//    REAL: ACC Developer Resource Centre (developer.acc.co.nz), integrated directly —
+//    this app is the ACC software vendor, not proxied via the PMS. Claim Number
+//    Allocation API (numbers), Claim API (lodge ACC45/ACC18), Query Claim Status API
+//    (poll registration + cover decision — no webhook). Auth = API key + Health Secure
+//    Digital Certificate; compliance (test) env precedes prod. See PRODUCTION-READINESS.md F.
 // ---------------------------------------------------------------------------
 export const acc = {
-  /** Opaque string; format is ACC-owned and changing — do not parse elsewhere. */
+  /** Opaque string; three ACC formats (AB12345 / 12345AB / 1234ABC) — do not parse. */
   allocateClaimNumber: (seq: number) => "IO" + seq,
 
   /**
    * Submit the ACC45. Returns a **transport-level acknowledgement** — the message
    * reached ACC — after which ACC registers the claim. This is NOT a cover decision:
    * ACC's documented cover statuses are accept / decline / held (held = under review),
-   * plus "not applicable" while the claim is not yet registered. A cover decision
-   * arrives asynchronously (webhook/poll) and lands in `Claim.decision`.
+   * plus "not applicable" while the claim is not yet registered. A cover decision is
+   * obtained by **polling** the Query Claim Status API and lands in `Claim.decision`.
    */
   lodge: (_claim: Claim): string => nowStamp(),
 
-  /** Cover decision, delivered asynchronously by ACC. STUB: simulated by buttons. */
+  /** Cover decision, obtained by polling ACC's Query Claim Status API. STUB: button. */
   decision: (choice: CoverDecision): CoverDecision => choice,
 };
 

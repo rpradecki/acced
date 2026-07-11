@@ -129,9 +129,11 @@ The claim does not exist in isolation — it is tied to a **clinical encounter (
 - **Pre-allocated block** — the practice/PMS holds a sequence of ACC45 numbers issued by ACC; the console draws the **next unused** number and marks it consumed. Track the remaining pool with a low-watermark warning and a "request more numbers" prompt.
 - **On-demand via ACC's Claim Number Allocation API** — request a fresh number at claim creation, removing the need to hold/refill blocks. Prefer this when available; fall back to the local block if the API is unavailable.
 
+> **Integration model (direct).** This application is the **ACC-integrated software vendor** and calls ACC's APIs itself (it is *not* proxied through the host PMS). Numbering, lodgement, and status all go through ACC's **Developer Resource Centre** (`developer.acc.co.nz`): **Claim Number Allocation API** (numbers), **Claim API** (lodge ACC45/ACC18), and **Query Claim Status API** (`POST claims/status` / `GET claims/{claimId}/status`, **polled** — ACC pushes nothing). Every call requires an **API key + Health Secure Digital Certificate**, with a **compliance (test) environment** for build/test before production. The full contract, auth, and onboarding are in `PRODUCTION-READINESS.md` §F (and the PMS launch seam in §D).
+
 Rules:
 - The number is **reserved at claim creation** (a draft has a number, matching the screenshot), **committed on lodgement**, and voided/returned if a draft is abandoned per practice policy — never silently reused.
-- Store the number as an **opaque string and validate against ACC's current allocation rules — do not hard-code prefix/length**: ACC is changing the ACC45 number format as the legacy pool is exhausted, so format assumptions will break.
+- Store the number as an **opaque string — do not hard-code prefix/length**. Three formats are now valid: legacy `AB12345`, plus `12345AB` and `1234ABC` (paper uses `12345AB`; electronic accepts all three). Any parsing of the reference will break as the legacy pool is exhausted.
 - Guarantee uniqueness across providers; guard against duplicate allocation.
 
 ### 4.1 Claim header & lifecycle

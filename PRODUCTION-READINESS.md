@@ -49,8 +49,27 @@ populate the provider number and facility from HPI (HISO 10005/10006).
 
 ## D. Encounter / launch context (P1) — *connector: `pms`*
 **Gap.** The encounter and patient are simulated on "New claim".
-**Target.** **SMART on FHIR EHR launch** from the PMS/PAS (Medtech, Indici, Profile, …);
-inherit the FHIR Encounter + Patient; no re-keying. Support standalone launch as a fallback.
+**Target.** **SMART on FHIR EHR launch** from the PMS/PAS (Medtech, Indici, Profile, …).
+Handoff needs, per integrated vendor:
+- **EHR launch:** accept the `iss` + `launch` parameters and run the SMART
+  authorization-code flow against the PMS's authorization/token endpoints; request scopes
+  for the visit context — e.g. `launch`, `openid fhirUser`, `patient/Patient.read`,
+  `patient/Encounter.read`.
+- **Inherit, don't re-key:** resolve the FHIR **Encounter** (subject→Patient,
+  participant→Practitioner, serviceProvider→Organization, `period`, `location`) and
+  **Patient** (NHI + demographics), and map them to the claim's encounter/patient snapshot.
+- **Write-back:** define the mechanism and scope for pushing verified corrections back to
+  the PMS (FHIR `update` vs treat the console as read-only) — **currently unspecified**,
+  and it differs per vendor.
+- **Standalone launch:** patient search by NHI/name + new-visit creation, for practices
+  without an integrated PMS.
+- **Per-vendor onboarding:** Medtech / Indici / Profile each have their own app-registration
+  and SMART-support specifics — enumerate the target vendors and their onboarding before
+  build; there is no single NZ PMS launch profile.
+
+> **Boundary note.** ACC number allocation and lodgement (gap **F**) are a **separate,
+> direct** ACC integration in this architecture — they are **not** obtained through the PMS.
+> The PMS supplies the visit/patient context; ACC supplies numbers, lodgement, and status.
 
 ## D2. Shared health record (P1) — *connector: `sdhr`*
 **Gap.** No integration with the national shared record.
@@ -67,14 +86,31 @@ access controls. (Programme phasing in; general API availability is staged.)
 `acc-claim-reference-set`. Pin & record the value-set version at lodgement. Support
 Read/ICD-10 maps for interop. (Full detail: `ACC-FHIR-Terminology-Spec.md`.)
 
-## F. ACC lodgement & numbering (P0) — *connector: `acc`*
-**Gap.** Claim numbers are a local sequence; "lodge" returns a canned acknowledgement;
-decisions are simulated by buttons.
-**Target.** ACC **Claim Number Allocation API** (on-demand ACC45 numbers) and ACC
-**eLodgement** for ACC45/ACC18 (HealthLink/PMS messaging and/or API). Persist ACC
-acknowledgements; receive **asynchronous cover decisions** (webhook/poll). Handle
-ACC2152 (treatment injury) and the supplementary flows (ACC1). Keep the ACC45 number an
-opaque string (format is changing).
+## F. ACC lodgement, numbering & status (P0) — *connector: `acc`*
+**Gap.** Claim numbers are a local sequence; `lodge` returns a canned receipt; decisions
+are simulated by buttons.
+**Target — this app is the ACC-integrated software vendor and calls ACC's APIs directly**
+(not via the host PMS). Via ACC's **Developer Resource Centre** (`developer.acc.co.nz`):
+- **Claim Number Allocation API** — request an ACC45 number on demand at claim creation
+  (removes the need to hold/refill pre-allocated blocks).
+- **Claim API** — create/lodge the ACC45 (and the ACC18 medical certificate); persist ACC's
+  **transport acknowledgement** into `claim.acknowledged_at` — it is a receipt, **not** a
+  cover decision (see §H of the product spec / `claim.decision`).
+- **Query Claim Status API** — `POST claims/status` and `GET claims/{claimId}/status`:
+  **poll** for registration and the cover decision (Accepted / Held / Declined, plus the
+  registered diagnosis details). ACC does **not** push decisions — there is **no webhook**;
+  build a polling loop, don't wait for a callback.
+- **ACC2152** (treatment injury) and the supplementary flows (**ACC1**) as required.
+
+**Auth & environments — plan onboarding lead-time early.** Every request needs an **API
+key** *and* a valid **Health Secure Digital Certificate**. ACC provides a **compliance
+(test) environment** for build/test alongside production; register as an ACC software
+vendor and pass ACC's compliance testing before go-live. Start from the Developer Resource
+Centre → *Essential Reading*, *APIs available to Providers*, and *API Build & Test*.
+
+**ACC45 number format.** Store as an **opaque string** — never parse or hard-code
+length/prefix. Three formats are now valid: legacy `AB12345`, plus `12345AB` and `1234ABC`
+(paper uses `12345AB`; electronic submissions accept all three, including legacy).
 
 ## G. Persistence & data residency (P0) — *connector: `persistence`*
 **Gap.** All state is in-session memory; nothing persists; single-user.
@@ -172,7 +208,7 @@ review, accessibility audit, clinical validation, and provider UAT.
 | `pms` | PMS/PAS via SMART on FHIR launch | D |
 | `sdhr` | Shared Digital Health Record (SDHR) FHIR API — replaces Hira | D2 |
 | `terminology` | SNOMED CT NZ Edition (NZHTS/Ontoserver) | E |
-| `acc` | ACC Claim Number Allocation API + eLodgement | F |
+| `acc` | ACC Developer Resource Centre: Claim Number Allocation API, Claim API, Query Claim Status API (API key + Health Secure certificate) | F |
 | `persistence` | NZ-region datastore; data sovereignty | G |
 | `audit` | Append-only audit (FHIR AuditEvent) | H |
 | `notification` | Messaging provider | P |
@@ -192,3 +228,9 @@ patient/claim data flows. The stubs make each of these an explicit, isolated uni
 - [NZ SDHR FHIR API / Implementation Guide](https://fhir-ig.digital.health.nz/sdhr/index.html)
 - [New Zealand FHIR Registry / NZ Base IG — Health NZ](https://health.govt.nz/our-work/digital-health/digital-health-sector-architecture-standards-and-governance/health-information-standards-0/new-zealand-fhir-registry)
 - [My Health Account Workforce brand & integration (PDF) — Te Whatu Ora](https://www.tewhatuora.govt.nz/assets/Health-services-and-programmes/Digital-health/Digital-health-identity/Brand-guidelines-My-Health-Account-Workforce-V3.pdf)
+- [ACC Developer Resource Centre — Essential Reading](https://developer.acc.co.nz/essential-reading)
+- [ACC Developer Resource Centre — Claim API](https://developer.acc.co.nz/claim-api)
+- [ACC Developer Resource Centre — Claim & Query Claim Status APIs](https://developer.acc.co.nz/claim-and-query-claim-status/apis)
+- [ACC Developer Resource Centre — APIs available to Providers](https://developer.acc.co.nz/resources/api-to-providers)
+- [ACC Developer Resource Centre — API Build & Test](https://developer.acc.co.nz/resources/api-build-test)
+- [ACC45 number change (formats + Claim Number Allocation API) — ACC](https://www.acc.co.nz/for-providers/provider-news-and-events/provider-news/acc45-number-change)
