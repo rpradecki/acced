@@ -24,9 +24,12 @@ surfaced on the Audit → Inspect view.
 5. **Derived, not stored, time windows.** The 14-day repair window is computed from
    `lodged_on`; the 12-month lodgement horizon from `accident.occurred_at`. Don't persist
    countdowns.
-6. **NZ data residency & least privilege.** Host in an approved NZ region; encrypt at rest;
-   row-level security for sensitive claims; app connects as a role that **cannot** update or
-   delete the history tables.
+6. **Shared-editable, optimistically locked.** Drafts are edited concurrently by admin and
+   clinician; writes lock on `claim.row_version` and reject on conflict rather than
+   clobbering (see *Concurrency & optimistic locking*).
+7. **NZ data residency & least privilege.** Host in an approved NZ region; encrypt at rest;
+   row-level security keyed on `facility_hpi` (and on `claim_type = 'sensitive'`); app
+   connects as a role that **cannot** update or delete the history tables.
 
 ## Entity–relationship overview
 
@@ -96,26 +99,35 @@ CREATE TABLE claim (
     reference      text UNIQUE NOT NULL,           -- ACC45 number, opaque string
     number_source  number_source NOT NULL,
     claim_type     claim_type NOT NULL DEFAULT 'injury',
-    status         claim_status NOT NULL DEFAULT 'draft',
+    status         claim_status NOT NULL DEFAULT 'draft',  -- drafts are 'draft'/'ready'
     decision       text,                           -- ACC cover decision: Accepted/Held/Declined.
                                                    -- NULL until ACC issues one. ACC has no
                                                    -- "Received" cover status; 'held' is the
                                                    -- documented under-review ("pre-cover") state.
+    decision_reason text,                          -- ACC's reason (esp. for Declined); the
+                                                   -- thing worth surfacing, not the bare word
+    decision_at    timestamptz,                    -- when the cover decision was returned
     acknowledged_at timestamptz,                   -- eLodgement transport receipt (message
-                                                   -- reached ACC) — NOT a cover decision.
+                                                   -- reached ACC) — NOT a cover decision
+    status_polled_at timestamptz,                  -- last poll of ACC's Query Claim Status API
+                                                   -- (decisions are polled, not pushed — no webhook)
     -- encounter (from PMS/PAS SMART launch) — references, not master data
     encounter_external_id  text,
     encounter_source_system text,
-    facility_hpi           text,                   -- HPI Organisation/Location
+    facility_hpi           text,                   -- HPI Organisation/Location; RLS scope key
     attending_provider_hpi text,                   -- HPI Practitioner
     created_at     timestamptz NOT NULL DEFAULT now(),
     created_by     uuid NOT NULL REFERENCES actor(actor_id),
     lodged_on      date,                           -- anchors the 14-day repair window
     lodged_by      uuid REFERENCES actor(actor_id),
+    -- Optimistic-locking token. Bumped on every save; a write supplies the row_version it
+    -- loaded and is rejected if the stored value has moved on (see "Concurrency" below).
+    row_version    integer NOT NULL DEFAULT 1,
     updated_at     timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX ix_claim_status      ON claim(status);
 CREATE INDEX ix_claim_lodged_on   ON claim(lodged_on);
+CREATE INDEX ix_claim_facility    ON claim(facility_hpi);  -- facility-scoped visibility
 CREATE INDEX ix_claim_created_by  ON claim(created_by);
 
 -- ---------- Part A: patient (captured snapshot; NHI is master elsewhere) ----------
@@ -319,11 +331,36 @@ over the serialized row), or `pgaudit`/logical replication into a separate audit
 System-versioned temporal tables (or the `temporal_tables` extension) are an alternative to
 `claim_version` snapshots if you prefer transparent row history.
 
+## Concurrency & optimistic locking
+
+Drafts are **shared-editable** — the admin captures Part A/B/consent while the clinician
+works Part C/D/E on the same claim, often concurrently. To stop one save silently
+clobbering another, writes use **optimistic locking** on `claim.row_version`:
+
+```sql
+-- The editor loaded the claim at row_version = :loaded. Commit only if nothing has moved on.
+UPDATE claim
+   SET status = :status, /* … changed satellite FKs handled in the same tx … */
+       row_version = row_version + 1,
+       updated_at  = now()
+ WHERE claim_id = :id
+   AND row_version = :loaded;         -- 0 rows updated ⇒ someone else saved first
+```
+
+If the `UPDATE` affects **0 rows**, reject the save and tell the editor to reload and
+re-apply — do not overwrite. `row_version` is the concurrency token (`updated_at` is for
+display/telemetry only, not for locking — clock skew makes timestamps unsafe as a token).
+Lodged claims are already edit-locked except via post-lodgement change requests, so
+contention is concentrated on drafts. `claim_version` (below) still records every accepted
+save; optimistic locking governs *which* saves are accepted. See `PRODUCTION-READINESS.md`
+§G.
+
 ## How the app maps onto this
 
-- The `persistence` connector's `save(claim, author, role, action)` → one `INSERT` into
-  `claim_version` (next `version`, `author`, `role`, `action`, `snapshot`) **and** one
-  `audit_event`; upsert the live rows in `claim` + satellites.
+- The `persistence` connector's `save(claim, author, role, action, loaded_version)` runs in
+  one transaction: the guarded `UPDATE … WHERE row_version = :loaded` above (reject on 0
+  rows), then one `INSERT` into `claim_version` (next `version`, `author`, `role`, `action`,
+  `snapshot`) **and** one `audit_event`; upsert the live rows in `claim` + satellites.
 - `persistence.versions(reference)` → `SELECT … FROM claim_version JOIN claim USING(claim_id)
   WHERE reference = $1 ORDER BY version` — this is the **Audit → Inspect** trail.
 - Dashboard panes: **Unsubmitted** = `status IN ('draft','ready')`; **Submitted (active)** =
@@ -338,8 +375,15 @@ System-versioned temporal tables (or the `temporal_tables` extension) are an alt
 
 - **PII/health data:** encrypt at rest (and consider column-level encryption for `nhi`,
   `dob`, contact fields); TLS in transit; key management per NZISM.
-- **Sensitive claims:** enable **row-level security** keyed on `claim_type = 'sensitive'`
-  so only authorised roles can read them.
+- **Facility-scoped visibility:** the primary access boundary is **row-level security
+  keyed on `facility_hpi`** — a clerical/clinical user sees only their own facility's
+  claims (server-side, not a UI filter), with **break-glass** (a reason written to
+  `audit_event`) for cross-facility access. The per-identity **working set** the dashboard
+  shows (claims you created or opened) is *derived*, not a separate table: `created_by = me`
+  UNION the `claim_id`s this actor appears against in `audit_event`. It is a convenience
+  view, not a security control. See `PRODUCTION-READINESS.md` §A.
+- **Sensitive claims:** additionally enable **row-level security** keyed on
+  `claim_type = 'sensitive'` so only authorised roles can read them.
 - **Retention:** never hard-delete; retain per records-management policy. The 14-day figure
   is an **edit/repair** window, not a data-retention period — the record persists.
 - **Residency/sovereignty:** host in an approved NZ region; consider Māori Data Sovereignty
